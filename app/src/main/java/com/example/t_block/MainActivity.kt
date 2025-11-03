@@ -494,18 +494,19 @@ fun Home(){
     // Cargar valores guardados una sola vez al entrar en composición
     LaunchedEffect(Unit) {
         bloquearRecienInstaladas = prefs.getBoolean(keyBloquearRec, false)
-        if (prefs.contains(keyDias)) {
-            val d = prefs.getInt(keyDias, 0)
-            if (d > 0) {
-                diasConfigurados = d
-                evitarDesinstalacionSwitch = true
-            } else {
-                diasConfigurados = null
-                evitarDesinstalacionSwitch = false
-            }
+
+        val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
+        val ahora = System.currentTimeMillis()
+
+        if (fechaFin > ahora) {
+            // 🔒 Protección aún activa
+            evitarDesinstalacionSwitch = true
+            diasConfigurados = prefs.getInt(keyDias, 0)
         } else {
-            diasConfigurados = null
+            // 🔓 Ya expiró o no hay datos
             evitarDesinstalacionSwitch = false
+            diasConfigurados = null
+            prefs.edit().remove(keyDias).remove("fin_evitar_desinstalacion").apply()
         }
     }
 
@@ -591,17 +592,31 @@ fun Home(){
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
+            val ahora = System.currentTimeMillis()
+            val bloqueoActivo = fechaFin > ahora
+
             Switch(
                 checked = evitarDesinstalacionSwitch,
+                enabled = !bloqueoActivo, // ❗ desactivado si sigue activo el bloqueo
                 onCheckedChange = { checked ->
-                    if (checked) {
-                        // intentar activar: abrir diálogo para pedir días
-                        showPreventUninstallDialog = true
+                    if (!bloqueoActivo) {
+                        if (checked) {
+                            showPreventUninstallDialog = true
+                        } else {
+                            prefs.edit()
+                                .remove(keyDias)
+                                .remove("fin_evitar_desinstalacion")
+                                .apply()
+                            evitarDesinstalacionSwitch = false
+                            diasConfigurados = null
+                        }
                     } else {
-                        // desactivar: borrar configuración y estado
-                        evitarDesinstalacionSwitch = false
-                        diasConfigurados = null
-                        prefs.edit().remove(keyDias).apply()
+                        Toast.makeText(
+                            context,
+                            "No puedes desactivar la protección hasta que pasen los días configurados.",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                 }
             )
@@ -673,44 +688,17 @@ fun Home(){
                 Button(onClick = {
                     val dias = diasInput.toIntOrNull()
                     if (dias != null && dias > 0) {
+                        val ahora = System.currentTimeMillis()
+                        val fechaFin = ahora + (dias * 24 * 60 * 60 * 1000L) // días → milisegundos
+
+                        prefs.edit()
+                            .putInt(keyDias, dias)
+                            .putLong("fin_evitar_desinstalacion", fechaFin)
+                            .apply()
+
                         diasConfigurados = dias
                         evitarDesinstalacionSwitch = true
                         showPreventUninstallDialog = false
-                        diasInput = ""
-                        // guardar en prefs
-                        prefs.edit().putInt(keyDias, diasConfigurados!!).apply()
-
-                        // Intent para activar Device Admin (usa adminComponent corregido)
-                        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-                            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Activa administrador para permitir funciones de bloqueo")
-                        }
-                        val activity = (context as? Activity)
-                        try {
-                            if (activity != null) {
-                                activity.startActivity(intent)
-                            } else {
-                                // fallback usando FLAG_ACTIVITY_NEW_TASK
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(intent)
-                            }
-                        } catch (e: Exception) {
-                            try {
-                                val fallback = Intent("android.app.action.DEVICE_ADMIN_SETTINGS")
-                                if (activity != null) {
-                                    activity.startActivity(fallback)
-                                } else {
-                                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(fallback)
-                                }
-                            } catch (_: Exception) { /* ignore */ }
-                            Toast.makeText(context, "No se pudo abrir la pantalla de administrador", Toast.LENGTH_SHORT).show()
-                        }
-
-                        // isAdminActive se actualizará en ON_RESUME cuando el usuario vuelva
-                    } else {
-                        // invalid input: limpiar o mantener
-                        diasInput = ""
                     }
                 }) {
                     Text("Confirmar")
