@@ -54,13 +54,16 @@ class BlockOverlayActivity : ComponentActivity() {
 
         // Evitar que la Activity se cierre por BACK
         // (override onBackPressed se define más abajo)
-
+        window.setBackgroundDrawableResource(android.R.color.black)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         setContent {
             TBlockTheme {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF111111)) // fondo oscuro que cubre todo
+                        .background(Color(0xFF000000)) // fondo oscuro que cubre todo
                         .padding(24.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally

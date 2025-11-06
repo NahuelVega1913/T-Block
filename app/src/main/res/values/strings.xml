@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">T-Block</string>
+    <string name="accessibility_service_description">
+        Este servicio permite a TBlock monitorear y bloquear aplicaciones según tu configuración.
+        También protege la app contra intentos de desinstalación cuando está activa la protección.
+    </string>
 </resources>

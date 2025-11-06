@@ -14,8 +14,15 @@
             <data android:scheme="https" />
         </intent>
     </queries>
+    <!--<activity
+        android:name=".BlockOverlayActivity"
+        android:excludeFromRecents="true"
+        android:exported="false"
+        android:launchMode="singleTask"
+        android:taskAffinity=""
+        android:theme="@style/Theme.TBlock" />-->
 
-    <application
+   // <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -49,13 +56,7 @@
         </receiver>
 
         <!-- Activity de overlay: FQCN -->
-        <activity
-            android:name="com.example.t_block.BlockOverlayActivity"
-            android:exported="true"
-            android:theme="@style/Theme.TBlock"
-            android:excludeFromRecents="true"
-            android:taskAffinity="">
-        </activity>
+
 
         <!-- Accessibility service: FQCN -->
         <service
