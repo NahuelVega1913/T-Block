@@ -34,15 +34,30 @@ class AppMonitorService : AccessibilityService() {
 
     // Variables para detectar desinstalación
     private var isInEditMode = false
+    private var lastLongPressWasOnMyApp = false
+    private var lastActivePackageBeforeLauncher: String? = null
+    private var miAppVisibleEnLauncher = false
+    private var ultimaVezMiAppVisible = 0L
     private val myPackageName by lazy { applicationContext.packageName }
-    private val myAppNames = listOf(
-        "T-Block"
-        // Ajusta según el nombre real de tu app
-    )
+
+    // Obtener el nombre real de la app dinámicamente
+    private val myAppName: String by lazy {
+        try {
+            val pm = applicationContext.packageManager
+            val appInfo = pm.getApplicationInfo(myPackageName, 0)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            "T-Block" // fallback
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        Log.d(TAG, "service connected")
+        Log.d(TAG, "========================================")
+        Log.d(TAG, "🚀 Servicio conectado")
+        Log.d(TAG, "📱 Package: $myPackageName")
+        Log.d(TAG, "🏷️  App Name: $myAppName")
+        Log.d(TAG, "========================================")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -58,13 +73,36 @@ class AppMonitorService : AccessibilityService() {
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
                 handleWindowContentChanged(event)
-                if (isInEditMode) {
+                // Verificar también si hay menú mientras el contenido cambia
+                if (isInEditMode || miAppVisibleEnLauncher) {
                     detectarMenuDesinstalacion()
                 }
             }
             AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
                 detectarLongPressEnMiApp()
             }
+            AccessibilityEvent.TYPE_VIEW_SCROLLED,
+            AccessibilityEvent.TYPE_VIEW_FOCUSED,
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                // Verificación extra durante scroll o cambios de contenido
+                // Esto ayuda a detectar cuando arrastran la app
+                if (miAppVisibleEnLauncher) {
+                    handler.removeCallbacks(verificacionRapida)
+                    handler.postDelayed(verificacionRapida, 50)
+                }
+            }
+        }
+    }
+
+    private val verificacionRapida = Runnable {
+        try {
+            val rootNode = rootInActiveWindow ?: return@Runnable
+            if (miAppVisibleEnLauncher) {
+                verificarMenuDesinstalacionInmediato(rootNode)
+            }
+            rootNode.recycle()
+        } catch (e: Exception) {
+            // Ignorar
         }
     }
 
@@ -102,7 +140,89 @@ class AppMonitorService : AccessibilityService() {
     private fun handleWindowContentChanged(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
         if (pkg == myPackageName) return
+
+        // Si estamos en el launcher, verificar si mi app está visible
+        val launchers = listOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3",
+            "com.sec.android.app.launcher",
+            "com.miui.home",
+            "com.huawei.android.launcher",
+            "com.oppo.launcher",
+            "com.oneplus.launcher",
+            "com.android.launcher",
+            "com.teslacoilsw.launcher",
+            "com.microsoft.launcher"
+        )
+
+        if (pkg in launchers) {
+            verificarSiMiAppEstaVisible()
+        }
+
+        // Lógica original de bloqueo de apps
         verificarBloqueApp(pkg)
+    }
+
+    private fun verificarSiMiAppEstaVisible() {
+        try {
+            val rootNode = rootInActiveWindow ?: return
+
+            // Buscar si mi app está visible en el launcher
+            val appNodes = rootNode.findAccessibilityNodeInfosByText(myAppName)
+
+            if (appNodes.isNotEmpty()) {
+                if (!miAppVisibleEnLauncher) {
+                    Log.d(TAG, "👁️ Mi app ahora VISIBLE en launcher - activando vigilancia")
+                }
+                miAppVisibleEnLauncher = true
+                ultimaVezMiAppVisible = System.currentTimeMillis()
+
+                // VERIFICACIÓN INMEDIATA: Buscar si hay menú de desinstalación AHORA
+                verificarMenuDesinstalacionInmediato(rootNode)
+
+                appNodes.forEach { it.recycle() }
+            } else {
+                if (miAppVisibleEnLauncher) {
+                    Log.d(TAG, "🙈 Mi app ya NO visible en launcher")
+                }
+                miAppVisibleEnLauncher = false
+            }
+
+            rootNode.recycle()
+        } catch (e: Exception) {
+            // Ignorar errores
+        }
+    }
+
+    private fun verificarMenuDesinstalacionInmediato(rootNode: AccessibilityNodeInfo) {
+        try {
+            // Si mi app está visible, buscar INMEDIATAMENTE si hay menú de desinstalación
+            val uninstallKeywords = listOf(
+                "Uninstall",
+                "Desinstalar",
+                "Remove",
+                "Eliminar",
+                "Delete",
+                "Quitar"
+            )
+
+            for (keyword in uninstallKeywords) {
+                val nodes = rootNode.findAccessibilityNodeInfosByText(keyword)
+                if (nodes.isNotEmpty()) {
+                    Log.w(TAG, "⚡ DETECCIÓN INMEDIATA: Mi app visible + '$keyword' en pantalla")
+                    nodes.forEach { it.recycle() }
+
+                    // Verificar que no sea menú de recientes
+                    if (!estaEnMenuRecientes(rootNode)) {
+                        Log.w(TAG, "🔴 BLOQUEANDO INMEDIATAMENTE")
+                        bloquearYVolverHome()
+                    }
+                    return
+                }
+            }
+        } catch (e: Exception) {
+            // Ignorar
+        }
     }
 
     private fun verificarBloqueApp(pkg: String) {
@@ -176,15 +296,43 @@ class AppMonitorService : AccessibilityService() {
         )
 
         if (packageName in launchers) {
-            handler.postDelayed({
-                verificarModoEdicion()
-            }, 200)
+            Log.d(TAG, "📱 En launcher: $packageName")
+
+            // Si acabamos de salir de nuestra app para ir al launcher, es sospechoso
+            if (lastActivePackageBeforeLauncher == myPackageName) {
+                Log.d(TAG, "⚠️ Sospechoso: volvimos al launcher desde nuestra app")
+                lastLongPressWasOnMyApp = true
+
+                // SOLO verificar modo edición si hubo transición sospechosa
+                handler.postDelayed({
+                    verificarModoEdicion()
+                    // Resetear después de verificar
+                    handler.postDelayed({
+                        lastLongPressWasOnMyApp = false
+                    }, 1000)
+                }, 300)
+            }
+            // Si NO venimos de nuestra app, NO hacer nada (no verificar)
+        } else {
+            // Guardar el último paquete activo (que no sea launcher ni nosotros)
+            if (packageName != myPackageName && !launchers.contains(packageName)) {
+                lastActivePackageBeforeLauncher = packageName
+            }
         }
     }
 
     private fun verificarModoEdicion() {
         try {
             val rootNode = rootInActiveWindow ?: return
+
+            Log.d(TAG, "=== Verificando modo edición ===")
+
+            // IMPORTANTE: Detectar si estamos en el menú de recientes/multitarea
+            if (estaEnMenuRecientes(rootNode)) {
+                Log.d(TAG, "📱 En menú de Recientes/Multitarea - NO bloquear")
+                rootNode.recycle()
+                return
+            }
 
             // Palabras clave de desinstalación
             val editIndicators = listOf(
@@ -193,23 +341,44 @@ class AppMonitorService : AccessibilityService() {
                 "Quitar",
                 "Uninstall",
                 "Remove",
-                "Delete",
-                "Información",
-                "Info"
+                "Delete"
             )
+
+            var foundUninstallMenu = false
 
             for (indicator in editIndicators) {
                 val nodes = rootNode.findAccessibilityNodeInfosByText(indicator)
                 if (nodes.isNotEmpty()) {
-                    if (esMiAppEnPeligro(rootNode)) {
-                        Log.w(TAG, "¡Intento de desinstalación desde launcher detectado!")
-                        bloquearYVolverHome()
-                        nodes.forEach { it.recycle() }
-                        rootNode.recycle()
-                        return
-                    }
+                    Log.d(TAG, "Encontrado indicador: $indicator")
+                    foundUninstallMenu = true
                     nodes.forEach { it.recycle() }
+                    break
                 }
+            }
+
+            if (!foundUninstallMenu) {
+                rootNode.recycle()
+                return
+            }
+
+            // ESTRATEGIA AGRESIVA: Si hay menú de desinstalación Y mi app está visible AHORA MISMO
+            if (miAppVisibleEnLauncher) {
+                Log.w(TAG, "🔴 BLOQUEADO INMEDIATO: Mi app visible + menú desinstalación")
+                rootNode.recycle()
+                bloquearYVolverHome()
+                return
+            }
+
+            // ESTRATEGIA 2: Si mi app estuvo visible recientemente (menos de 3 segundos)
+            val tiempoDesdeUltimaVez = System.currentTimeMillis() - ultimaVezMiAppVisible
+            val miAppRecienteVisible = tiempoDesdeUltimaVez < 3000
+
+            if (lastLongPressWasOnMyApp || miAppRecienteVisible) {
+                Log.w(TAG, "🔴 BLOQUEADO: Mi app visible recientemente + menú de desinstalación")
+                Log.d(TAG, "  - Tiempo desde última vez visible: ${tiempoDesdeUltimaVez}ms")
+                rootNode.recycle()
+                bloquearYVolverHome()
+                return
             }
 
             rootNode.recycle()
@@ -218,30 +387,139 @@ class AppMonitorService : AccessibilityService() {
         }
     }
 
+    private fun estaEnMenuRecientes(rootNode: AccessibilityNodeInfo): Boolean {
+        try {
+            // Buscar indicadores del menú de recientes/multitarea
+            val recentesIndicators = listOf(
+                "Clear all",
+                "Cerrar todo",
+                "Borrar todo",
+                "Screenshot",
+                "Captura",
+                "Split screen",
+                "Pantalla dividida",
+                "App info",
+                "Select",
+                "Seleccionar"
+            )
+
+            for (indicator in recentesIndicators) {
+                val nodes = rootNode.findAccessibilityNodeInfosByText(indicator)
+                if (nodes.isNotEmpty()) {
+                    Log.d(TAG, "✓ Detectado indicador de Recientes: $indicator")
+                    nodes.forEach { it.recycle() }
+                    return true
+                }
+            }
+
+            // También verificar por className típico del overview/recents
+            if (buscarClaseRecents(rootNode)) {
+                return true
+            }
+
+            return false
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en estaEnMenuRecientes", e)
+            return false
+        }
+    }
+
+    private fun buscarClaseRecents(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+
+        try {
+            val className = node.className?.toString() ?: ""
+
+            // Clases típicas del menú de recientes
+            if (className.contains("Overview", ignoreCase = true) ||
+                className.contains("Recents", ignoreCase = true) ||
+                className.contains("RecentTasks", ignoreCase = true) ||
+                className.contains("TaskView", ignoreCase = true)) {
+                Log.d(TAG, "✓ Detectada clase de Recientes: $className")
+                return true
+            }
+
+            // Buscar recursivamente
+            for (i in 0 until node.childCount) {
+                if (buscarClaseRecents(node.getChild(i))) {
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            // Ignorar errores
+        }
+
+        return false
+    }
+
     private fun detectarLongPressEnMiApp() {
         try {
             val rootNode = rootInActiveWindow ?: return
 
-            // Buscar si se hizo long press en nuestra app
-            for (appName in myAppNames) {
-                val appNodes = rootNode.findAccessibilityNodeInfosByText(appName)
-                if (appNodes.isNotEmpty()) {
-                    isInEditMode = true
-                    Log.d(TAG, "Long press detectado en nuestra app")
+            Log.d(TAG, "========== LONG PRESS DETECTADO ==========")
+            Log.d(TAG, "Buscando app: $myAppName")
 
+            // Listar TODOS los textos visibles para debug
+            listarTodosLosTextos(rootNode)
+
+            // Buscar por el nombre real de la app
+            val appNodes = rootNode.findAccessibilityNodeInfosByText(myAppName)
+            if (appNodes.isNotEmpty()) {
+                lastLongPressWasOnMyApp = true
+                isInEditMode = true
+                Log.d(TAG, "🔴 ✅ Long press CONFIRMADO en nuestra app: $myAppName")
+
+                handler.postDelayed({
+                    Log.d(TAG, "⏰ Verificando modo edición después de long press...")
+                    verificarModoEdicion()
+                    isInEditMode = false
+                    // Mantener la bandera un poco más de tiempo
                     handler.postDelayed({
-                        verificarModoEdicion()
-                        isInEditMode = false
-                    }, 500)
+                        Log.d(TAG, "🔄 Reseteando bandera lastLongPressWasOnMyApp")
+                        lastLongPressWasOnMyApp = false
+                    }, 2000)
+                }, 300)
 
-                    appNodes.forEach { it.recycle() }
-                    break
-                }
+                appNodes.forEach { it.recycle() }
+            } else {
+                // Long press en otra app
+                lastLongPressWasOnMyApp = false
+                Log.d(TAG, "❌ Long press en OTRA app (no encontré: $myAppName)")
             }
 
             rootNode.recycle()
         } catch (e: Exception) {
             Log.e(TAG, "Error en detectarLongPressEnMiApp", e)
+        }
+    }
+
+    // Método de debug para listar todos los textos visibles
+    private fun listarTodosLosTextos(node: AccessibilityNodeInfo?, nivel: Int = 0) {
+        if (node == null) return
+
+        try {
+            val indent = "  ".repeat(nivel)
+
+            // Log del texto del nodo
+            val text = node.text?.toString()
+            if (!text.isNullOrBlank()) {
+                Log.d(TAG, "${indent}📝 Texto: $text")
+            }
+
+            // Log del contentDescription
+            val desc = node.contentDescription?.toString()
+            if (!desc.isNullOrBlank()) {
+                Log.d(TAG, "${indent}📋 Desc: $desc")
+            }
+
+            // Recursivo para hijos (limitar a 3 niveles para no saturar logs)
+            if (nivel < 3) {
+                for (i in 0 until node.childCount) {
+                    listarTodosLosTextos(node.getChild(i), nivel + 1)
+                }
+            }
+        } catch (e: Exception) {
+            // Ignorar errores en nodos individuales
         }
     }
 
@@ -280,27 +558,108 @@ class AppMonitorService : AccessibilityService() {
 
     private fun esMiAppEnPeligro(rootNode: AccessibilityNodeInfo): Boolean {
         try {
-            // Buscar por nombre de app
-            for (appName in myAppNames) {
-                val nodes = rootNode.findAccessibilityNodeInfosByText(appName)
+            Log.d(TAG, "🔎 Buscando mi app en el contexto actual...")
+
+            // 1. Buscar por el nombre real de la app
+            val nameNodes = rootNode.findAccessibilityNodeInfosByText(myAppName)
+            if (nameNodes.isNotEmpty()) {
+                Log.d(TAG, "✅ App detectada por nombre: $myAppName")
+                nameNodes.forEach { it.recycle() }
+                return true
+            }
+
+            // 2. Buscar por package name completo
+            val packageNodes = rootNode.findAccessibilityNodeInfosByText(myPackageName)
+            if (packageNodes.isNotEmpty()) {
+                Log.d(TAG, "✅ App detectada por package: $myPackageName")
+                packageNodes.forEach { it.recycle() }
+                return true
+            }
+
+            // 3. Buscar variaciones del nombre (sin espacios, minúsculas, etc)
+            val variaciones = generarVariacionesNombre(myAppName)
+            for (variacion in variaciones) {
+                val nodes = rootNode.findAccessibilityNodeInfosByText(variacion)
                 if (nodes.isNotEmpty()) {
+                    Log.d(TAG, "✅ App detectada por variación: $variacion")
                     nodes.forEach { it.recycle() }
                     return true
                 }
             }
 
-            // Buscar por package name
-            val packageNodes = rootNode.findAccessibilityNodeInfosByText(myPackageName)
-            if (packageNodes.isNotEmpty()) {
-                packageNodes.forEach { it.recycle() }
+            // 4. Recorrer todos los nodos buscando el package en ContentDescription o ViewId
+            val found = buscarEnNodos(rootNode)
+            if (found) {
+                Log.d(TAG, "✅ App detectada en nodos recursivos")
                 return true
             }
 
+            Log.d(TAG, "❌ App NO detectada en contexto")
             return false
         } catch (e: Exception) {
             Log.e(TAG, "Error en esMiAppEnPeligro", e)
             return false
         }
+    }
+
+    private fun generarVariacionesNombre(nombre: String): List<String> {
+        val variaciones = mutableListOf<String>()
+
+        // Original
+        variaciones.add(nombre)
+
+        // Sin espacios
+        variaciones.add(nombre.replace(" ", ""))
+
+        // Minúsculas
+        variaciones.add(nombre.lowercase())
+
+        // Mayúsculas
+        variaciones.add(nombre.uppercase())
+
+        // Sin espacios y minúsculas
+        variaciones.add(nombre.replace(" ", "").lowercase())
+
+        // Sin guiones
+        variaciones.add(nombre.replace("-", ""))
+        variaciones.add(nombre.replace("-", " "))
+
+        return variaciones.distinct()
+    }
+
+    private fun buscarEnNodos(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+
+        try {
+            // Verificar contentDescription
+            val desc = node.contentDescription?.toString()
+            if (desc != null && (desc.contains(myPackageName) || desc.contains(myAppName))) {
+                return true
+            }
+
+            // Verificar viewIdResourceName
+            val viewId = node.viewIdResourceName
+            if (viewId != null && viewId.contains(myPackageName)) {
+                return true
+            }
+
+            // Verificar text
+            val text = node.text?.toString()
+            if (text != null && (text.equals(myAppName, ignoreCase = true) || text.contains(myPackageName))) {
+                return true
+            }
+
+            // Buscar recursivamente en hijos
+            for (i in 0 until node.childCount) {
+                if (buscarEnNodos(node.getChild(i))) {
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            // Ignorar errores en nodos individuales
+        }
+
+        return false
     }
 
     private fun bloquearYVolverHome() {
@@ -309,30 +668,50 @@ class AppMonitorService : AccessibilityService() {
         val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
         val ahora = System.currentTimeMillis()
 
+        Log.d(TAG, "=== bloquearYVolverHome ===")
+        Log.d(TAG, "Fecha fin: $fechaFin")
+        Log.d(TAG, "Ahora: $ahora")
+        Log.d(TAG, "Protección activa: ${fechaFin > ahora}")
+
         if (fechaFin <= ahora) {
-            // Protección no activa, no bloquear
+            Log.w(TAG, "⚠️ Protección NO activa, no se bloqueará")
+            // Resetear banderas
+            lastLongPressWasOnMyApp = false
+            miAppVisibleEnLauncher = false
             return
         }
 
         try {
-            // Volver al home
+            Log.d(TAG, "🏠 Ejecutando GLOBAL_ACTION_HOME")
             performGlobalAction(GLOBAL_ACTION_HOME)
+
+            // Resetear banderas inmediatamente
+            lastLongPressWasOnMyApp = false
+            miAppVisibleEnLauncher = false
+            ultimaVezMiAppVisible = 0L
 
             // Mostrar bloqueo después de un momento
             handler.postDelayed({
                 val diasRestantes = calcularDiasRestantes(fechaFin)
+                Log.d(TAG, "🛑 Mostrando bloqueo, días restantes: $diasRestantes")
                 mostrarBloqueoDesinstalacion(diasRestantes)
             }, 150)
         } catch (e: Exception) {
-            Log.e(TAG, "Error en bloquearYVolverHome", e)
+            Log.e(TAG, "❌ Error en bloquearYVolverHome", e)
         }
     }
 
     private fun mostrarBloqueoDesinstalacion(diasRestantes: Int) {
         try {
+            Log.d(TAG, "=== mostrarBloqueoDesinstalacion ===")
+            Log.d(TAG, "Días restantes: $diasRestantes")
+            Log.d(TAG, "Tiene permiso overlay: ${Settings.canDrawOverlays(applicationContext)}")
+
             if (Settings.canDrawOverlays(applicationContext)) {
+                Log.d(TAG, "📺 Mostrando overlay de bloqueo")
                 showOverlay("TBlock", true, diasRestantes)
             } else {
+                Log.d(TAG, "📱 Mostrando Activity de bloqueo (sin overlay)")
                 // Fallback a Activity
                 val intent = Intent(applicationContext, BlockOverlayActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -343,7 +722,7 @@ class AppMonitorService : AccessibilityService() {
                 startActivity(intent)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error mostrando bloqueo desinstalación", e)
+            Log.e(TAG, "❌ Error mostrando bloqueo desinstalación", e)
         }
     }
 
