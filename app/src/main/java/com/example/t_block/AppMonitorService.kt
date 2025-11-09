@@ -53,6 +53,7 @@ class AppMonitorService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        bloquearArrastre()
         Log.d(TAG, "========================================")
         Log.d(TAG, "🚀 Servicio conectado")
         Log.d(TAG, "📱 Package: $myPackageName")
@@ -625,6 +626,26 @@ class AppMonitorService : AccessibilityService() {
         variaciones.add(nombre.replace("-", " "))
 
         return variaciones.distinct()
+    }
+    private fun bloquearArrastre() {
+        if (Settings.canDrawOverlays(applicationContext)) {
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            )
+
+            val overlay = View(applicationContext).apply {
+                setBackgroundColor(Color.TRANSPARENT)
+                setOnTouchListener { _, _ -> true } // bloquea toques
+            }
+
+            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            wm.addView(overlay, params)
+        }
     }
 
     private fun buscarEnNodos(node: AccessibilityNodeInfo?): Boolean {

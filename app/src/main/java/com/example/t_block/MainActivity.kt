@@ -71,6 +71,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.example.t_block.ui.theme.TBlockTheme
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import android.provider.Settings.Secure
 import android.util.Log
@@ -104,7 +105,7 @@ class MainActivity : ComponentActivity() {
 
             // Preferencias y DPM (usa la clase correcta MyDeviceAdminReceiver)
             val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-            val adminComponent = ComponentName(this, MyDeviceAdminReceiver::class.java)
+            val adminComponent = ComponentName(this, MyDeviceAdminReciever::class.java)
             val dpm = getSystemService(DEVICE_POLICY_SERVICE) as? DevicePolicyManager
 
             // pedir permiso de overlays sin lanzar excepción
@@ -112,6 +113,35 @@ class MainActivity : ComponentActivity() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     if (!Settings.canDrawOverlays(this)) {
                         val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                        startActivity(intent)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        if (!Settings.canDrawOverlays(this)) {
+                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                            startActivity(intent)
+                        }
+                    }
+                    try {
+                        val pm = getSystemService(POWER_SERVICE) as PowerManager
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:$packageName")
+                                }
+                                startActivity(intent)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MainActivity", "No se pudo solicitar ignorar optimización de batería: ${e.message}")
+                    }
+                    val componentName = ComponentName(this, MyDeviceAdminReciever::class.java)
+                    val devicePolicyManager = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+
+                    if (!devicePolicyManager.isAdminActive(componentName)) {
+                        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName)
+                            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Se necesita este permiso para proteger la app.")
+                        }
                         startActivity(intent)
                     }
                 }
@@ -138,6 +168,7 @@ class MainActivity : ComponentActivity() {
 
             setContent {
                 TBlockTheme {
+
                     var selectedScreen by remember { mutableStateOf<Screen>(Screen.Home) }
                     Scaffold(
                         modifier = Modifier.fillMaxSize(),
@@ -467,7 +498,7 @@ fun Home(){
     val devicePolicyManager = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
 
     // Cambiado: usar la clase real MyDeviceAdminReceiver (coincide con la definición)
-    val adminComponent = remember { ComponentName(context, MyDeviceAdminReceiver::class.java) } // { changed code }
+    val adminComponent = remember { ComponentName(context, MyDeviceAdminReciever::class.java) } // { changed code }
 
     // SharedPreferences
     val prefsName = "tblock_prefs"
@@ -520,7 +551,14 @@ fun Home(){
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-
+    if (isAdminActive.not()) {
+        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Activá este permiso para proteger la app contra desinstalación.")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -717,9 +755,7 @@ fun Home(){
     }
 }
 // Agregar un DeviceAdminReceiver simple que se usará en el Intent de activación
-class MyDeviceAdminReceiver : android.app.admin.DeviceAdminReceiver() {
-    // ...existing code or leave empty...
-}
+
 data class BottomNavItem(
     val label: String,
     val icon: ImageVector
