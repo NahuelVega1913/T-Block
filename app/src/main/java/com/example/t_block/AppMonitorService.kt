@@ -16,6 +16,7 @@ import android.view.Gravity
 import android.view.View
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -574,6 +575,121 @@ class AppMonitorService : AccessibilityService() {
     private fun cerrarPopupProteccion() {
         sendBroadcast(Intent("CERRAR_PROTECCION"))
     }
+    private fun mostrarOverlayArrastre() {
+        if (!Settings.canDrawOverlays(applicationContext) || overlayArrastre != null) return
+
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+
+        // Parámetros para overlay de máxima prioridad
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
+            // FLAGS CRÍTICOS: Remover FLAG_NOT_TOUCHABLE para capturar todos los toques
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+
+        // Crear contenedor principal
+        val overlayLayout = FrameLayout(applicationContext).apply {
+            setBackgroundColor(Color.argb(240, 30, 30, 30)) // Fondo casi opaco
+            isClickable = true
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+
+        // Interceptar TODOS los eventos de toque
+        overlayLayout.setOnTouchListener { _, event ->
+            Log.d(TAG, "🛑 Touch bloqueado: ${event.action}")
+            true // Consumir el evento para que no pase al launcher
+        }
+
+        // Mensaje de advertencia
+        val mensaje = TextView(applicationContext).apply {
+            text = "⚠️ PROTECCIÓN ACTIVA\n\n" +
+                    "No puedes mover ni desinstalar\n" +
+                    "esta aplicación mientras esté protegida"
+            setTextColor(Color.WHITE)
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setPadding(40, 40, 40, 40)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        // Icono o indicador visual (opcional)
+        val icono = TextView(applicationContext).apply {
+            text = "🔒"
+            textSize = 60f
+            gravity = Gravity.CENTER
+        }
+
+        // Botón para volver al home
+        val botonHome = Button(applicationContext).apply {
+            text = "Volver al Inicio"
+            textSize = 16f
+            setBackgroundColor(Color.argb(255, 200, 50, 50))
+            setTextColor(Color.WHITE)
+            setPadding(60, 30, 60, 30)
+
+            setOnClickListener {
+                try {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    handler.postDelayed({
+                        removerOverlayArrastre()
+                    }, 300)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error volviendo al home: ${e.message}")
+                }
+            }
+        }
+
+        // Añadir elementos al layout
+        val paramsIcono = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.CENTER
+            topMargin = -200
+        }
+        overlayLayout.addView(icono, paramsIcono)
+
+        val paramsMensaje = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+        overlayLayout.addView(mensaje, paramsMensaje)
+
+        val paramsBoton = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            bottomMargin = 150
+        }
+        overlayLayout.addView(botonHome, paramsBoton)
+
+        try {
+            wm.addView(overlayLayout, params)
+            overlayArrastre = overlayLayout
+            Log.d(TAG, "🛑 Overlay de bloqueo COMPLETO mostrado")
+
+            // Solicitar foco para asegurar que capture eventos
+            overlayLayout.requestFocus()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error mostrando overlay de arrastre: ${e.message}")
+        }
+    }
+
     private fun removerOverlayArrastre() {
         if (overlayArrastre == null) return
         try {
@@ -584,36 +700,6 @@ class AppMonitorService : AccessibilityService() {
             Log.e(TAG, "Error al eliminar overlay de arrastre: ${e.message}")
         } finally {
             overlayArrastre = null
-        }
-    }
-    private fun mostrarOverlayArrastre() {
-        if (!Settings.canDrawOverlays(applicationContext) || overlayArrastre != null) return
-
-        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else
-                @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-            PixelFormat.TRANSLUCENT
-        )
-
-        val overlay = View(applicationContext).apply {
-            setBackgroundColor(Color.argb(80, 0, 0, 0)) // semi-transparente
-        }
-
-        try {
-            wm.addView(overlay, params)
-            overlayArrastre = overlay
-            Log.d(TAG, "🛑 Overlay de arrastre mostrado")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error mostrando overlay de arrastre: ${e.message}")
         }
     }
 
