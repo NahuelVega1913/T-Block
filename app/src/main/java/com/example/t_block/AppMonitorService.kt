@@ -2,6 +2,7 @@ package com.example.t_block
 
 import android.accessibilityservice.AccessibilityService
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.view.accessibility.AccessibilityEvent
 import android.content.Intent
@@ -19,6 +20,7 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -60,6 +62,10 @@ class AppMonitorService : AccessibilityService() {
     private var ultimaVezMiAppVisible = 0L
     private val myPackageName by lazy { applicationContext.packageName }
 
+    // Variable para controlar el inicio del servicio
+    private var servicioInicializado = false
+    private val TIEMPO_ESPERA_INICIO = 5000L // 5 segundos después del inicio
+
     // Obtener el nombre real de la app dinámicamente
     private val myAppName: String by lazy {
         try {
@@ -73,30 +79,27 @@ class AppMonitorService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        bloquearArrastre()
         Log.d(TAG, "========================================")
         Log.d(TAG, "🚀 Servicio conectado")
         Log.d(TAG, "📱 Package: $myPackageName")
         Log.d(TAG, "🏷️  App Name: $myAppName")
         Log.d(TAG, "========================================")
+
+        // Marcar el servicio como NO inicializado por 5 segundos
+        // Esto previene que se muestren overlays inmediatamente después del boot
+        servicioInicializado = false
+
+        handler.postDelayed({
+            servicioInicializado = true
+            Log.d(TAG, "✅ Servicio completamente inicializado, protección activa")
+        }, TIEMPO_ESPERA_INICIO)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
         val t = event.eventType
-        val evtType = event.eventType
-        if (evtType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val pkg = event.packageName?.toString() ?: return
-            // --- NUEVO: detectar launcher en este punto ---
-            if (pkg in KNOWN_LAUNCHERS) {
-                Log.d(TAG, "Launcher detectado: $pkg -> solicitar pantalla de protección")
-                mostrarProteccionFullScreen()
-            } else {
-                // si estamos en alguna otra app, cerrar si estaba abierto
-                cerrarProteccionFullScreen()
-            }
-        }
+
         // Manejar diferentes tipos de eventos
         when (t) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
@@ -114,10 +117,8 @@ class AppMonitorService : AccessibilityService() {
                 detectarLongPressEnMiApp()
             }
             AccessibilityEvent.TYPE_VIEW_SCROLLED,
-            AccessibilityEvent.TYPE_VIEW_FOCUSED,
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
                 // Verificación extra durante scroll o cambios de contenido
-                // Esto ayuda a detectar cuando arrastran la app
                 if (miAppVisibleEnLauncher) {
                     handler.removeCallbacks(verificacionRapida)
                     handler.postDelayed(verificacionRapida, 50)
@@ -143,6 +144,25 @@ class AppMonitorService : AccessibilityService() {
         val pkg = pkgObj.toString()
 
         if (pkg == myPackageName) return
+
+        // CRÍTICO: No hacer nada si el servicio no está completamente inicializado
+        if (!servicioInicializado) {
+            Log.d(TAG, "⏳ Servicio aún inicializando, ignorando evento de $pkg")
+            return
+        }
+
+        // Detectar launcher y mostrar protección si está activa
+        if (pkg in KNOWN_LAUNCHERS) {
+            Log.d(TAG, "Launcher detectado: $pkg")
+            val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
+            val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
+            if (fechaFin > System.currentTimeMillis()) {
+                Log.d(TAG, "Protección activa -> mostrar pantalla de protección")
+                mostrarProteccionFullScreen()
+            }
+        } else {
+            cerrarProteccionFullScreen()
+        }
 
         // Detectar si está en Ajustes intentando desinstalar
         if (event.className != null && event.className.toString().contains("com.android.settings")) {
@@ -174,29 +194,23 @@ class AppMonitorService : AccessibilityService() {
         if (pkg == myPackageName) return
 
         // Si estamos en el launcher, verificar si mi app está visible
-        val launchers = listOf(
-            "com.google.android.apps.nexuslauncher",
-            "com.android.launcher3",
-            "com.sec.android.app.launcher",
-            "com.miui.home",
-            "com.huawei.android.launcher",
-            "com.oppo.launcher",
-            "com.oneplus.launcher",
-            "com.android.launcher",
-            "com.teslacoilsw.launcher",
-            "com.microsoft.launcher"
-        )
-
-        if (pkg in launchers) {
+        if (pkg in KNOWN_LAUNCHERS) {
             verificarSiMiAppEstaVisible()
         }
 
         // Lógica original de bloqueo de apps
         verificarBloqueApp(pkg)
     }
+
     private fun mostrarProteccionFullScreen() {
         // evita lanzar repetidamente
         if (proteccionActivityVisible) return
+
+        // CRÍTICO: No mostrar si el servicio no está inicializado
+        if (!servicioInicializado) {
+            Log.d(TAG, "⏳ Servicio inicializando, protección diferida")
+            return
+        }
 
         // Verificar que la protección esté activa según tus prefs
         val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
@@ -209,7 +223,6 @@ class AppMonitorService : AccessibilityService() {
         try {
             val intent = Intent(this, ProteccionActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                // extra opcional para saber quién la abrió
                 putExtra("source", "launcher_detected")
             }
             startActivity(intent)
@@ -223,7 +236,6 @@ class AppMonitorService : AccessibilityService() {
     private fun cerrarProteccionFullScreen() {
         if (!proteccionActivityVisible) return
         try {
-            // mandar broadcast a la Activity para que se cierre
             val b = Intent("ACTION_CLOSE_PROTECCION_ACTIVITY")
             sendBroadcast(b)
             proteccionActivityVisible = false
@@ -237,7 +249,6 @@ class AppMonitorService : AccessibilityService() {
         try {
             val rootNode = rootInActiveWindow ?: return
 
-            // Buscar si mi app está visible en el launcher
             val appNodes = rootNode.findAccessibilityNodeInfosByText(myAppName)
 
             if (appNodes.isNotEmpty()) {
@@ -247,7 +258,6 @@ class AppMonitorService : AccessibilityService() {
                 miAppVisibleEnLauncher = true
                 ultimaVezMiAppVisible = System.currentTimeMillis()
 
-                // VERIFICACIÓN INMEDIATA: Buscar si hay menú de desinstalación AHORA
                 verificarMenuDesinstalacionInmediato(rootNode)
 
                 appNodes.forEach { it.recycle() }
@@ -266,14 +276,8 @@ class AppMonitorService : AccessibilityService() {
 
     private fun verificarMenuDesinstalacionInmediato(rootNode: AccessibilityNodeInfo) {
         try {
-            // Si mi app está visible, buscar INMEDIATAMENTE si hay menú de desinstalación
             val uninstallKeywords = listOf(
-                "Uninstall",
-                "Desinstalar",
-                "Remove",
-                "Eliminar",
-                "Delete",
-                "Quitar"
+                "Uninstall", "Desinstalar", "Remove", "Eliminar", "Delete", "Quitar"
             )
 
             for (keyword in uninstallKeywords) {
@@ -282,7 +286,6 @@ class AppMonitorService : AccessibilityService() {
                     Log.w(TAG, "⚡ DETECCIÓN INMEDIATA: Mi app visible + '$keyword' en pantalla")
                     nodes.forEach { it.recycle() }
 
-                    // Verificar que no sea menú de recientes
                     if (!estaEnMenuRecientes(rootNode)) {
                         Log.w(TAG, "🔴 BLOQUEANDO INMEDIATAMENTE")
                         bloquearYVolverHome()
@@ -306,12 +309,10 @@ class AppMonitorService : AccessibilityService() {
                 if (pkg == lastBlockedPackage) return
                 lastBlockedPackage = pkg
 
-                // Si tenemos permiso de overlay, mostrar overlay desde el servicio
                 if (Settings.canDrawOverlays(applicationContext)) {
                     showOverlay(pkg, false, 0)
                     Log.d(TAG, "Overlay mostrado para $pkg")
                 } else {
-                    // fallback: intentar iniciar Activity
                     try {
                         val intent = Intent(applicationContext, BlockOverlayActivity::class.java).apply {
                             putExtra("blocked_package", pkg)
@@ -331,12 +332,10 @@ class AppMonitorService : AccessibilityService() {
                     }
                 }
 
-                // permitir relanzar más tarde
                 handler.removeCallbacksAndMessages(null)
                 handler.postDelayed({ lastBlockedPackage = null }, 1000L)
             } else {
                 if (lastBlockedPackage == pkg) lastBlockedPackage = null
-                // si la app no está en lista y hay overlay visible, removerlo
                 if (overlayView != null) {
                     removeOverlay()
                 }
@@ -346,46 +345,25 @@ class AppMonitorService : AccessibilityService() {
         }
     }
 
-    // ========== DETECCIÓN DE DESINSTALACIÓN ==========
-
     private fun detectarLauncherEditMode(event: AccessibilityEvent) {
         val packageName = event.packageName?.toString() ?: return
 
-        // Lista de launchers comunes
-        val launchers = listOf(
-            "com.google.android.apps.nexuslauncher",
-            "com.android.launcher3",
-            "com.sec.android.app.launcher",
-            "com.miui.home",
-            "com.huawei.android.launcher",
-            "com.oppo.launcher",
-            "com.oneplus.launcher",
-            "com.android.launcher",
-            "com.teslacoilsw.launcher",
-            "com.microsoft.launcher"
-        )
-
-        if (packageName in launchers) {
+        if (packageName in KNOWN_LAUNCHERS) {
             Log.d(TAG, "📱 En launcher: $packageName")
 
-            // Si acabamos de salir de nuestra app para ir al launcher, es sospechoso
             if (lastActivePackageBeforeLauncher == myPackageName) {
                 Log.d(TAG, "⚠️ Sospechoso: volvimos al launcher desde nuestra app")
                 lastLongPressWasOnMyApp = true
 
-                // SOLO verificar modo edición si hubo transición sospechosa
                 handler.postDelayed({
                     verificarModoEdicion()
-                    // Resetear después de verificar
                     handler.postDelayed({
                         lastLongPressWasOnMyApp = false
                     }, 1000)
                 }, 300)
             }
-            // Si NO venimos de nuestra app, NO hacer nada (no verificar)
         } else {
-            // Guardar el último paquete activo (que no sea launcher ni nosotros)
-            if (packageName != myPackageName && !launchers.contains(packageName)) {
+            if (packageName != myPackageName && !KNOWN_LAUNCHERS.contains(packageName)) {
                 lastActivePackageBeforeLauncher = packageName
             }
         }
@@ -397,21 +375,14 @@ class AppMonitorService : AccessibilityService() {
 
             Log.d(TAG, "=== Verificando modo edición ===")
 
-            // IMPORTANTE: Detectar si estamos en el menú de recientes/multitarea
             if (estaEnMenuRecientes(rootNode)) {
                 Log.d(TAG, "📱 En menú de Recientes/Multitarea - NO bloquear")
                 rootNode.recycle()
                 return
             }
 
-            // Palabras clave de desinstalación
             val editIndicators = listOf(
-                "Desinstalar",
-                "Eliminar",
-                "Quitar",
-                "Uninstall",
-                "Remove",
-                "Delete"
+                "Desinstalar", "Eliminar", "Quitar", "Uninstall", "Remove", "Delete"
             )
 
             var foundUninstallMenu = false
@@ -431,7 +402,6 @@ class AppMonitorService : AccessibilityService() {
                 return
             }
 
-            // ESTRATEGIA AGRESIVA: Si hay menú de desinstalación Y mi app está visible AHORA MISMO
             if (miAppVisibleEnLauncher) {
                 Log.w(TAG, "🔴 BLOQUEADO INMEDIATO: Mi app visible + menú desinstalación")
                 rootNode.recycle()
@@ -439,7 +409,6 @@ class AppMonitorService : AccessibilityService() {
                 return
             }
 
-            // ESTRATEGIA 2: Si mi app estuvo visible recientemente (menos de 3 segundos)
             val tiempoDesdeUltimaVez = System.currentTimeMillis() - ultimaVezMiAppVisible
             val miAppRecienteVisible = tiempoDesdeUltimaVez < 3000
 
@@ -459,18 +428,9 @@ class AppMonitorService : AccessibilityService() {
 
     private fun estaEnMenuRecientes(rootNode: AccessibilityNodeInfo): Boolean {
         try {
-            // Buscar indicadores del menú de recientes/multitarea
             val recentesIndicators = listOf(
-                "Clear all",
-                "Cerrar todo",
-                "Borrar todo",
-                "Screenshot",
-                "Captura",
-                "Split screen",
-                "Pantalla dividida",
-                "App info",
-                "Select",
-                "Seleccionar"
+                "Clear all", "Cerrar todo", "Borrar todo", "Screenshot", "Captura",
+                "Split screen", "Pantalla dividida", "App info", "Select", "Seleccionar"
             )
 
             for (indicator in recentesIndicators) {
@@ -482,7 +442,6 @@ class AppMonitorService : AccessibilityService() {
                 }
             }
 
-            // También verificar por className típico del overview/recents
             if (buscarClaseRecents(rootNode)) {
                 return true
             }
@@ -500,7 +459,6 @@ class AppMonitorService : AccessibilityService() {
         try {
             val className = node.className?.toString() ?: ""
 
-            // Clases típicas del menú de recientes
             if (className.contains("Overview", ignoreCase = true) ||
                 className.contains("Recents", ignoreCase = true) ||
                 className.contains("RecentTasks", ignoreCase = true) ||
@@ -509,7 +467,6 @@ class AppMonitorService : AccessibilityService() {
                 return true
             }
 
-            // Buscar recursivamente
             for (i in 0 until node.childCount) {
                 if (buscarClaseRecents(node.getChild(i))) {
                     return true
@@ -523,6 +480,12 @@ class AppMonitorService : AccessibilityService() {
     }
 
     private fun detectarLongPressEnMiApp() {
+        // CRÍTICO: No procesar long press si el servicio no está inicializado
+        if (!servicioInicializado) {
+            Log.d(TAG, "⏳ Servicio inicializando, ignorando long press")
+            return
+        }
+
         try {
             val rootNode = rootInActiveWindow ?: return
 
@@ -535,19 +498,17 @@ class AppMonitorService : AccessibilityService() {
                 isInEditMode = true
                 Log.d(TAG, "🔴 ✅ Long press en nuestra app: $myAppName")
 
-                // 🔹 Mostrar overlay transparente que bloquea interacción
                 mostrarOverlayArrastre()
 
-                // Después de unos segundos, verificar si sigue en modo edición
                 handler.postDelayed({
                     Log.d(TAG, "⏰ Verificando modo edición después del long press...")
                     verificarModoEdicion()
-                    removerOverlayArrastre() // 🔹 Quita el overlay cuando termina el intento
+                    removerOverlayArrastre()
                     isInEditMode = false
                     handler.postDelayed({
                         lastLongPressWasOnMyApp = false
                     }, 2000)
-                }, 1000)
+                }, 2000)
 
                 appNodes.forEach { it.recycle() }
             } else {
@@ -561,26 +522,12 @@ class AppMonitorService : AccessibilityService() {
             Log.e(TAG, "Error en detectarLongPressEnMiApp", e)
         }
     }
-    private fun mostrarPopupProteccion() {
-        val intent = Intent(this, ProteccionActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        try {
-            startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error al mostrar protección: ${e.message}")
-        }
-    }
 
-    private fun cerrarPopupProteccion() {
-        sendBroadcast(Intent("CERRAR_PROTECCION"))
-    }
     private fun mostrarOverlayArrastre() {
         if (!Settings.canDrawOverlays(applicationContext) || overlayArrastre != null) return
 
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // Parámetros para overlay de máxima prioridad
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -588,7 +535,6 @@ class AppMonitorService : AccessibilityService() {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
                 @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
-            // FLAGS CRÍTICOS: Remover FLAG_NOT_TOUCHABLE para capturar todos los toques
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_FULLSCREEN or
@@ -598,21 +544,18 @@ class AppMonitorService : AccessibilityService() {
             gravity = Gravity.CENTER
         }
 
-        // Crear contenedor principal
         val overlayLayout = FrameLayout(applicationContext).apply {
-            setBackgroundColor(Color.argb(240, 30, 30, 30)) // Fondo casi opaco
+            setBackgroundColor(Color.argb(240, 30, 30, 30))
             isClickable = true
             isFocusable = true
             isFocusableInTouchMode = true
         }
 
-        // Interceptar TODOS los eventos de toque
         overlayLayout.setOnTouchListener { _, event ->
             Log.d(TAG, "🛑 Touch bloqueado: ${event.action}")
-            true // Consumir el evento para que no pase al launcher
+            true
         }
 
-        // Mensaje de advertencia
         val mensaje = TextView(applicationContext).apply {
             text = "⚠️ PROTECCIÓN ACTIVA\n\n" +
                     "No puedes mover ni desinstalar\n" +
@@ -624,14 +567,12 @@ class AppMonitorService : AccessibilityService() {
             typeface = Typeface.DEFAULT_BOLD
         }
 
-        // Icono o indicador visual (opcional)
         val icono = TextView(applicationContext).apply {
             text = "🔒"
             textSize = 60f
             gravity = Gravity.CENTER
         }
 
-        // Botón para volver al home
         val botonHome = Button(applicationContext).apply {
             text = "Volver al Inicio"
             textSize = 16f
@@ -651,7 +592,6 @@ class AppMonitorService : AccessibilityService() {
             }
         }
 
-        // Añadir elementos al layout
         val paramsIcono = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
@@ -683,7 +623,6 @@ class AppMonitorService : AccessibilityService() {
             overlayArrastre = overlayLayout
             Log.d(TAG, "🛑 Overlay de bloqueo COMPLETO mostrado")
 
-            // Solicitar foco para asegurar que capture eventos
             overlayLayout.requestFocus()
         } catch (e: Exception) {
             Log.e(TAG, "Error mostrando overlay de arrastre: ${e.message}")
@@ -703,47 +642,12 @@ class AppMonitorService : AccessibilityService() {
         }
     }
 
-    // Método de debug para listar todos los textos visibles
-    private fun listarTodosLosTextos(node: AccessibilityNodeInfo?, nivel: Int = 0) {
-        if (node == null) return
-
-        try {
-            val indent = "  ".repeat(nivel)
-
-            // Log del texto del nodo
-            val text = node.text?.toString()
-            if (!text.isNullOrBlank()) {
-                Log.d(TAG, "${indent}📝 Texto: $text")
-            }
-
-            // Log del contentDescription
-            val desc = node.contentDescription?.toString()
-            if (!desc.isNullOrBlank()) {
-                Log.d(TAG, "${indent}📋 Desc: $desc")
-            }
-
-            // Recursivo para hijos (limitar a 3 niveles para no saturar logs)
-            if (nivel < 3) {
-                for (i in 0 until node.childCount) {
-                    listarTodosLosTextos(node.getChild(i), nivel + 1)
-                }
-            }
-        } catch (e: Exception) {
-            // Ignorar errores en nodos individuales
-        }
-    }
-
     private fun detectarMenuDesinstalacion() {
         try {
             val rootNode = rootInActiveWindow ?: return
 
             val uninstallKeywords = listOf(
-                "Desinstalar",
-                "Uninstall",
-                "Eliminar",
-                "Remove",
-                "Info de la app",
-                "App info"
+                "Desinstalar", "Uninstall", "Eliminar", "Remove", "Info de la app", "App info"
             )
 
             for (keyword in uninstallKeywords) {
@@ -770,7 +674,6 @@ class AppMonitorService : AccessibilityService() {
         try {
             Log.d(TAG, "🔎 Buscando mi app en el contexto actual...")
 
-            // 1. Buscar por el nombre real de la app
             val nameNodes = rootNode.findAccessibilityNodeInfosByText(myAppName)
             if (nameNodes.isNotEmpty()) {
                 Log.d(TAG, "✅ App detectada por nombre: $myAppName")
@@ -778,7 +681,6 @@ class AppMonitorService : AccessibilityService() {
                 return true
             }
 
-            // 2. Buscar por package name completo
             val packageNodes = rootNode.findAccessibilityNodeInfosByText(myPackageName)
             if (packageNodes.isNotEmpty()) {
                 Log.d(TAG, "✅ App detectada por package: $myPackageName")
@@ -786,7 +688,6 @@ class AppMonitorService : AccessibilityService() {
                 return true
             }
 
-            // 3. Buscar variaciones del nombre (sin espacios, minúsculas, etc)
             val variaciones = generarVariacionesNombre(myAppName)
             for (variacion in variaciones) {
                 val nodes = rootNode.findAccessibilityNodeInfosByText(variacion)
@@ -797,7 +698,6 @@ class AppMonitorService : AccessibilityService() {
                 }
             }
 
-            // 4. Recorrer todos los nodos buscando el package en ContentDescription o ViewId
             val found = buscarEnNodos(rootNode)
             if (found) {
                 Log.d(TAG, "✅ App detectada en nodos recursivos")
@@ -814,72 +714,35 @@ class AppMonitorService : AccessibilityService() {
 
     private fun generarVariacionesNombre(nombre: String): List<String> {
         val variaciones = mutableListOf<String>()
-
-        // Original
         variaciones.add(nombre)
-
-        // Sin espacios
         variaciones.add(nombre.replace(" ", ""))
-
-        // Minúsculas
         variaciones.add(nombre.lowercase())
-
-        // Mayúsculas
         variaciones.add(nombre.uppercase())
-
-        // Sin espacios y minúsculas
         variaciones.add(nombre.replace(" ", "").lowercase())
-
-        // Sin guiones
         variaciones.add(nombre.replace("-", ""))
         variaciones.add(nombre.replace("-", " "))
-
         return variaciones.distinct()
-    }
-    private fun bloquearArrastre() {
-        if (Settings.canDrawOverlays(applicationContext)) {
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                PixelFormat.TRANSLUCENT
-            )
-
-            val overlay = View(applicationContext).apply {
-                setBackgroundColor(Color.TRANSPARENT)
-                setOnTouchListener { _, _ -> true } // bloquea toques
-            }
-
-            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-            wm.addView(overlay, params)
-        }
     }
 
     private fun buscarEnNodos(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
 
         try {
-            // Verificar contentDescription
             val desc = node.contentDescription?.toString()
             if (desc != null && (desc.contains(myPackageName) || desc.contains(myAppName))) {
                 return true
             }
 
-            // Verificar viewIdResourceName
             val viewId = node.viewIdResourceName
             if (viewId != null && viewId.contains(myPackageName)) {
                 return true
             }
 
-            // Verificar text
             val text = node.text?.toString()
             if (text != null && (text.equals(myAppName, ignoreCase = true) || text.contains(myPackageName))) {
                 return true
             }
 
-            // Buscar recursivamente en hijos
             for (i in 0 until node.childCount) {
                 if (buscarEnNodos(node.getChild(i))) {
                     return true
@@ -893,7 +756,6 @@ class AppMonitorService : AccessibilityService() {
     }
 
     private fun bloquearYVolverHome() {
-        // Verificar si la protección está activa
         val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
         val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
         val ahora = System.currentTimeMillis()
@@ -905,7 +767,6 @@ class AppMonitorService : AccessibilityService() {
 
         if (fechaFin <= ahora) {
             Log.w(TAG, "⚠️ Protección NO activa, no se bloqueará")
-            // Resetear banderas
             lastLongPressWasOnMyApp = false
             miAppVisibleEnLauncher = false
             return
@@ -915,12 +776,10 @@ class AppMonitorService : AccessibilityService() {
             Log.d(TAG, "🏠 Ejecutando GLOBAL_ACTION_HOME")
             performGlobalAction(GLOBAL_ACTION_HOME)
 
-            // Resetear banderas inmediatamente
             lastLongPressWasOnMyApp = false
             miAppVisibleEnLauncher = false
             ultimaVezMiAppVisible = 0L
 
-            // Mostrar bloqueo después de un momento
             handler.postDelayed({
                 val diasRestantes = calcularDiasRestantes(fechaFin)
                 Log.d(TAG, "🛑 Mostrando bloqueo, días restantes: $diasRestantes")
@@ -942,7 +801,6 @@ class AppMonitorService : AccessibilityService() {
                 showOverlay("TBlock", true, diasRestantes)
             } else {
                 Log.d(TAG, "📱 Mostrando Activity de bloqueo (sin overlay)")
-                // Fallback a Activity
                 val intent = Intent(applicationContext, BlockOverlayActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     putExtra("blocked_package", "TBlock")
@@ -962,8 +820,6 @@ class AppMonitorService : AccessibilityService() {
         return (diferencia / (24 * 60 * 60 * 1000)).toInt() + 1
     }
 
-    // ========== OVERLAY (modificado para soportar modo desinstalación) ==========
-
     override fun onInterrupt() {
         removeOverlay()
     }
@@ -973,11 +829,10 @@ class AppMonitorService : AccessibilityService() {
 
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // Contenedor full-screen
         val bgColor = if (isUninstallAttempt) {
-            Color.argb(240, 183, 28, 28) // rojo intenso para desinstalación
+            Color.argb(240, 183, 28, 28)
         } else {
-            Color.argb(220, 0, 0, 0) // negro para bloqueo normal
+            Color.argb(220, 0, 0, 0)
         }
 
         val layout = FrameLayout(this).apply {
@@ -989,7 +844,6 @@ class AppMonitorService : AccessibilityService() {
 
         layout.setOnTouchListener { _, _ -> true }
 
-        // Mensaje central
         val mensaje = if (isUninstallAttempt) {
             "⚠️ INTENTO DE DESINSTALACIÓN BLOQUEADO\n\n" +
                     "Esta aplicación está protegida\n" +
@@ -1006,7 +860,6 @@ class AppMonitorService : AccessibilityService() {
             setPadding(24, 24, 24, 24)
         }
 
-        // Botón
         val btn = Button(this).apply {
             text = "Volver al inicio"
             setOnClickListener {
@@ -1021,7 +874,6 @@ class AppMonitorService : AccessibilityService() {
             }
         }
 
-        // Añadir views
         val paramsTv = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -1037,7 +889,6 @@ class AppMonitorService : AccessibilityService() {
         }
         layout.addView(btn, paramsBtn)
 
-        // LayoutParams
         val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
@@ -1064,7 +915,6 @@ class AppMonitorService : AccessibilityService() {
             layout.requestFocus()
         } catch (e: Exception) {
             Log.w(TAG, "addView overlay fallo: ${e.message}")
-            // Fallback a Activity
             try {
                 val intent = Intent(applicationContext, BlockOverlayActivity::class.java).apply {
                     putExtra("blocked_package", blockedPkg)
@@ -1087,6 +937,15 @@ class AppMonitorService : AccessibilityService() {
         } finally {
             overlayView = null
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Limpiar todos los overlays cuando el servicio se destruya
+        removerOverlayArrastre()
+        removeOverlay()
+        handler.removeCallbacksAndMessages(null)
+        Log.d(TAG, "🛑 Servicio destruido, overlays limpiados")
     }
 }
 class ProteccionActivity : Activity() {
@@ -1162,6 +1021,7 @@ class ProteccionActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(closeReceiver) } catch (_: Exception) {}
+
     }
 
    // override fun onBackPressed() {
