@@ -525,14 +525,14 @@ fun Home(){
     // Cargar valores guardados una sola vez al entrar en composición
     LaunchedEffect(Unit) {
         bloquearRecienInstaladas = prefs.getBoolean(keyBloquearRec, false)
-
         val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
         val ahora = System.currentTimeMillis()
-
         if (fechaFin > ahora) {
-            // 🔒 Protección aún activa
+            // 🔒 Protección aún activa - calcular días restantes
             evitarDesinstalacionSwitch = true
-            diasConfigurados = prefs.getInt(keyDias, 0)
+            val milisRestantes = fechaFin - ahora
+            val diasRestantes = (milisRestantes / (24 * 60 * 60 * 1000L)).toInt() + 1 // +1 para redondear hacia arriba
+            diasConfigurados = diasRestantes
         } else {
             // 🔓 Ya expiró o no hay datos
             evitarDesinstalacionSwitch = false

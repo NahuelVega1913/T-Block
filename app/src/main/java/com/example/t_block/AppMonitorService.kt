@@ -38,6 +38,7 @@ class AppMonitorService : AccessibilityService() {
     private val KNOWN_LAUNCHERS = setOf(
         "com.google.android.apps.nexuslauncher",
         "com.android.launcher3",
+        "com.motorola.launcher3",
         "com.sec.android.app.launcher",
         "com.miui.home",
         "com.huawei.android.launcher",
