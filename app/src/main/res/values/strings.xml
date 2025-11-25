@@ -1,7 +1,25 @@
 <resources>
     <string name="app_name">T-Block</string>
+    <string name="admin_description">Administrador de dispositivo para protección anti-desinstalación</string>
+
     <string name="accessibility_service_description">
         Este servicio permite a TBlock monitorear y bloquear aplicaciones según tu configuración.
         También protege la app contra intentos de desinstalación cuando está activa la protección.
     </string>
+    <string name="title_protection">PROTECCIÓN ACTIVA</string>
+    <string name="message_protection">No se puede desinstalar ni mover esta aplicación.</string>
+    <string name="protection_days">0 días restantes</string>
+    <string name="btn_cerrar">Cerrar</string>
+
+    <!-- Textos de Bloqueo -->
+    <string name="title_blocked">Acceso Bloqueado</string>
+    <string name="message_blocked">Esta aplicación está bloqueada</string>
+    <string name="btn_home">Ir al Inicio</string>
+
+    <!-- Textos del Reminder -->
+    <string name="title_reminder">Desinstalación Bloqueada</string>
+    <string name="message_reminder">Esta aplicación está protegida contra desinstalación.\n\nNo puedes desinstalarla ni mover su ícono a la papelera.</string>
+    <string name="protection_info">🔐 Tiempo de Protección</string>
+    <string name="btn_cancel">Cancelar</string>
+    <string name="btn_ok">Entendido</string>
 </resources>

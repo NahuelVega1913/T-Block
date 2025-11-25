@@ -29,6 +29,30 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
+    <!-- ========== PERMISOS PARA PROTECCIÓN ANTI-DESINSTALACIÓN ========== -->
+    <!-- Servicio de accesibilidad -->
+    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" />
+
+    <!-- Administrador de dispositivo -->
+    <uses-permission android:name="android.permission.BIND_DEVICE_ADMIN" />
+
+    <!-- Internet para notificaciones -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Notificaciones -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Desinstalación de paquetes -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <!-- Servicio en foreground -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- Bloqueo de pantalla -->
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- ========== QUERIES PARA PAQUETES ========== -->
     <queries>
         <!-- Permite consultar apps instaladas -->
@@ -40,11 +64,20 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- Para detectar launchers -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <!-- Para settings -->
+        <intent>
+            <action android:name="android.settings.APPLICATION_DETAILS_SETTINGS" />
+        </intent>
     </queries>
 
     <!-- ========== APPLICATION ========== -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.TBlock"
@@ -67,7 +100,7 @@
         <activity
             android:name="com.example.t_block.BlockOverlayActivity"
             android:exported="false"
-            android:theme="@style/Theme.TBlock"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
             android:taskAffinity=""
@@ -77,7 +110,7 @@
         <activity
             android:name="com.example.t_block.ProteccionActivity"
             android:exported="false"
-            android:theme="@style/Theme.TBlock"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
             android:taskAffinity=""
@@ -89,7 +122,7 @@
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true"
             android:enabled="true">
-            <intent-filter>
+            <intent-filter android:priority="199">
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
             <meta-data
@@ -101,13 +134,14 @@
         <receiver
             android:name="com.example.t_block.MyDeviceAdminReceiver"
             android:label="@string/app_name"
+            android:description="@string/admin_description"
             android:permission="android.permission.BIND_DEVICE_ADMIN"
             android:exported="true"
             android:enabled="true">
             <meta-data
                 android:name="android.app.device_admin"
-                android:resource="@xml/device_admin_receiver" />
-            <intent-filter>
+                android:resource="@xml/device_admin" />
+            <intent-filter android:priority="999">
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
                 <action android:name="android.app.action.DEVICE_ADMIN_DISABLED" />
                 <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED" />
@@ -135,6 +169,9 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!-- ========== SETTINGS CHANGED RECEIVER (OPCIONAL) ========== -->
+
 
     </application>
 
