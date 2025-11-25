@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/gradient_bloqueo"
+    android:fitsSystemWindows="true">
+
+    <!-- Container principal -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <!-- Card de bloqueo -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="320dp"
+            android:layout_height="400dp"
+            android:layout_gravity="center"
+            android:layout_margin="20dp"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="12dp"
+            app:strokeColor="@color/red_dark"
+            app:strokeWidth="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="25dp"
+                android:background="@drawable/gradient_card_bloqueo">
+
+                <!-- Icono bloqueado -->
+                <TextView
+                    android:id="@+id/icon_blocked"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🚫"
+                    android:textSize="100sp"
+                    android:layout_marginBottom="20dp"/>
+
+                <!-- Título -->
+                <TextView
+                    android:id="@+id/title_blocked"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Acceso Bloqueado"
+                    android:textSize="24sp"
+                    android:textColor="@color/white"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:layout_marginBottom="15dp"/>
+
+                <!-- Línea decorativa -->
+                <View
+                    android:layout_width="50dp"
+                    android:layout_height="2dp"
+                    android:background="@color/red_accent"
+                    android:layout_marginBottom="20dp"/>
+
+                <!-- Mensaje de bloqueo -->
+                <TextView
+                    android:id="@+id/message_blocked"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Esta aplicación está bloqueada"
+                    android:textSize="14sp"
+                    android:textColor="@color/text_light"
+                    android:gravity="center"
+                    android:layout_marginBottom="20dp"
+                    android:lineSpacingExtra="3dp"/>
+
+                <!-- Nombre de app -->
+                <TextView
+                    android:id="@+id/app_name_blocked"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="12sp"
+                    android:textColor="@color/text_gray"
+                    android:gravity="center"
+                    android:layout_marginBottom="30dp"
+                    android:padding="10dp"
+                    android:background="@drawable/bg_app_name"
+                    android:layout_marginLeft="10dp"
+                    android:layout_marginRight="10dp"/>
+
+                <!-- Botón de acción -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_home"
+                    android:layout_width="200dp"
+                    android:layout_height="45dp"
+                    android:text="Ir al Inicio"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="10dp"
+                    app:backgroundTint="@color/red_accent"
+                    android:layout_marginTop="20dp"/>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+    </FrameLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

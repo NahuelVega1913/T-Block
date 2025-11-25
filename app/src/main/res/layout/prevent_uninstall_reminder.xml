@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/semi_transparent_black"
+    android:fitsSystemWindows="true">
+
+    <!-- Card principal -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/card_reminder"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="20dp"
+        app:cardCornerRadius="15dp"
+        app:cardElevation="8dp"
+        app:strokeColor="@color/red_accent"
+        app:strokeWidth="2dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintVertical_bias="0.45">
+
+        <LinearLayout
+            android:id="@+id/layout_reminder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="25dp"
+            android:gravity="center"
+            android:background="@drawable/gradient_reminder">
+
+            <!-- Icono de advertencia -->
+            <TextView
+                android:id="@+id/icon_warning"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⚠️"
+                android:textSize="80sp"
+                android:layout_marginBottom="15dp"/>
+
+            <!-- Título -->
+            <TextView
+                android:id="@+id/title_reminder"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Desinstalación Bloqueada"
+                android:textSize="22sp"
+                android:textColor="@color/white"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- Línea separadora -->
+            <View
+                android:layout_width="60dp"
+                android:layout_height="2dp"
+                android:background="@color/red_accent"
+                android:layout_marginBottom="20dp"/>
+
+            <!-- Mensaje principal -->
+            <TextView
+                android:id="@+id/message_reminder"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Esta aplicación está protegida contra desinstalación.\n\nNo puedes desinstalarla ni mover su ícono a la papelera."
+                android:textSize="14sp"
+                android:textColor="@color/text_light"
+                android:gravity="center"
+                android:layout_marginBottom="20dp"
+                android:lineSpacingExtra="4dp"/>
+
+            <!-- Info de protección -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="25dp"
+                app:cardCornerRadius="10dp"
+                app:cardBackgroundColor="@color/info_background"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="15dp"
+                    android:gravity="center">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🔐 Tiempo de Protección"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_gray"
+                        android:layout_marginBottom="8dp"/>
+
+                    <TextView
+                        android:id="@+id/protection_days"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0 días restantes"
+                        android:textSize="18sp"
+                        android:textColor="@color/red_accent"
+                        android:textStyle="bold"/>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Botones de acción -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:spacing="15dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_cancel"
+                    android:layout_width="0dp"
+                    android:layout_height="45dp"
+                    android:layout_weight="1"
+                    android:text="Cancelar"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="10dp"
+                    app:backgroundTint="@color/gray_button"
+                    app:strokeColor="@color/red_accent"
+                    app:strokeWidth="1dp"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_ok"
+                    android:layout_width="0dp"
+                    android:layout_height="45dp"
+                    android:layout_weight="1"
+                    android:text="Entendido"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="10dp"
+                    app:backgroundTint="@color/red_accent"/>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
