@@ -32,10 +32,9 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 class AppMonitorService : AccessibilityService() {
 
-    private val TAG = "BlockHero-Monitor"
+    private val TAG = "T-Block-Monitor"
     private var lastBlockedPackage: String? = null
     private val handler = Handler(Looper.getMainLooper())
-    private var overlayView: View? = null
 
     private val KNOWN_LAUNCHERS = setOf(
         "com.google.android.apps.nexuslauncher",
@@ -49,7 +48,6 @@ class AppMonitorService : AccessibilityService() {
 
     private val myPackageName by lazy { applicationContext.packageName }
     private var servicioInicializado = false
-    private val TIEMPO_ESPERA_INICIO = 2000L
 
     private val myAppName: String by lazy {
         try {
@@ -57,30 +55,30 @@ class AppMonitorService : AccessibilityService() {
             val appInfo = pm.getApplicationInfo(myPackageName, 0)
             pm.getApplicationLabel(appInfo).toString()
         } catch (e: Exception) {
-            "BlockHero"
+            "T-Block"
         }
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        Log.d(TAG, "🚀 ========== ACCESSIBILITY SERVICE CONECTADO ==========")
+        Log.d(TAG, "🚀 ACCESSIBILITY SERVICE CONECTADO")
         Log.d(TAG, "📱 Package: $myPackageName")
-        Log.d(TAG, "🏷️  App Name: $myAppName")
 
-        serviceInfo = AccessibilityServiceInfo().apply {
-            eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
-                    AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
-                    AccessibilityEvent.TYPE_VIEW_LONG_CLICKED or
-                    AccessibilityEvent.TYPE_VIEW_CLICKED
-            feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-            flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-            notificationTimeout = 100
-        }
-
-        handler.postDelayed({
+        try {
+            serviceInfo = AccessibilityServiceInfo().apply {
+                eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                        AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
+                        AccessibilityEvent.TYPE_VIEW_LONG_CLICKED or
+                        AccessibilityEvent.TYPE_VIEW_CLICKED
+                feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+                flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                notificationTimeout = 100
+            }
             servicioInicializado = true
             Log.d(TAG, "✅ Servicio listo - PROTECCIÓN ACTIVA")
-        }, TIEMPO_ESPERA_INICIO)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en onServiceConnected: ${e.message}")
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -89,20 +87,28 @@ class AppMonitorService : AccessibilityService() {
         try {
             val packageName = event.packageName?.toString() ?: return
 
+            // NO procesar eventos de nuestra propia app
+            if (packageName == myPackageName) return
+
             when (event.eventType) {
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                    Log.d(TAG, "📱 Ventana cambió: $packageName")
+
+                    // Detectar launcher
                     if (packageName in KNOWN_LAUNCHERS) {
-                        Log.d(TAG, "📱 Launcher detectado: $packageName")
                         verificarProteccionEnLauncher()
                     }
+
+                    // Detectar Settings
                     if (packageName.contains("settings", ignoreCase = true)) {
-                        detectarIntentDesinstalacion()
+                        detectarIntentDesinstalacion(event)
                     }
                 }
 
                 AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
                     Log.d(TAG, "🔴 Long click detectado en: $packageName")
-                    detectarLongClickEnMiApp()
+                    // ✅ NO bloquear aquí - dejar que el sistema continúe
+                    verificarProteccionEnLauncher()
                 }
 
                 AccessibilityEvent.TYPE_VIEW_CLICKED -> {
@@ -111,15 +117,17 @@ class AppMonitorService : AccessibilityService() {
 
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
                     if (packageName in KNOWN_LAUNCHERS) {
-                        detectarMenuDesinstalacion()
+                        detectarMenuDesinstalacion(event)
                     }
                 }
             }
 
+            // Verificar apps bloqueadas
             verificarBloqueApp(packageName)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error en onAccessibilityEvent: ${e.message}")
+            e.printStackTrace()
         }
     }
 
@@ -134,7 +142,7 @@ class AppMonitorService : AccessibilityService() {
                 mostrarProteccionFullScreen()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error verificando protección: ${e.message}")
+            Log.e(TAG, "Error en verificarProteccionEnLauncher: ${e.message}")
         }
     }
 
@@ -146,15 +154,14 @@ class AppMonitorService : AccessibilityService() {
             val blocked = prefs.getStringSet("blocked_apps", emptySet()) ?: emptySet()
 
             if (!blocked.contains(pkg)) {
-                if (lastBlockedPackage == pkg) lastBlockedPackage = null
-                if (overlayView != null) removeOverlay()
+                lastBlockedPackage = null
                 return
             }
 
             if (pkg == lastBlockedPackage) return
             lastBlockedPackage = pkg
 
-            Log.d(TAG, "🚫 APP BLOQUEADA DETECTADA: $pkg")
+            Log.d(TAG, "🚫 APP BLOQUEADA: $pkg")
 
             val pm = packageManager
             val appName = try {
@@ -164,121 +171,23 @@ class AppMonitorService : AccessibilityService() {
                 pkg
             }
 
-            if (Settings.canDrawOverlays(applicationContext)) {
-                showBlockOverlay(pkg, appName)
-            } else {
-                try {
-                    val intent = Intent(applicationContext, BlockOverlayActivity::class.java).apply {
-                        putExtra("blocked_package", appName)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    startActivity(intent)
-                } catch (ex: Exception) {
-                    Log.e(TAG, "Error lanzando overlay: ${ex.message}")
+            // ✅ Mostrar overlay de bloqueo
+            try {
+                val intent = Intent(applicationContext, BlockOverlayActivity::class.java).apply {
+                    putExtra("blocked_package", appName)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
+                startActivity(intent)
+                Log.d(TAG, "✅ BlockOverlayActivity iniciada")
+            } catch (ex: Exception) {
+                Log.e(TAG, "Error lanzando BlockOverlay: ${ex.message}")
             }
 
             handler.removeCallbacksAndMessages(null)
-            handler.postDelayed({ lastBlockedPackage = null }, 1000L)
+            handler.postDelayed({ lastBlockedPackage = null }, 2000L)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error en verificarBloqueApp: ${e.message}")
-        }
-    }
-
-    private fun showBlockOverlay(blockedPkg: String, appName: String) {
-        if (overlayView != null) return
-
-        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-
-        val layout = FrameLayout(this).apply {
-            setBackgroundColor(Color.argb(240, 20, 20, 20))
-            isClickable = true
-            isFocusable = true
-        }
-
-        layout.setOnTouchListener { _, _ -> true }
-
-        val icono = TextView(this).apply {
-            text = "🚫"
-            textSize = 80f
-            gravity = Gravity.CENTER
-        }
-
-        val mensaje = TextView(this).apply {
-            text = "Aplicación bloqueada\n\n$appName"
-            setTextColor(Color.WHITE)
-            textSize = 20f
-            gravity = Gravity.CENTER
-            setPadding(40, 40, 40, 40)
-            typeface = Typeface.DEFAULT_BOLD
-        }
-
-        val btnHome = Button(this).apply {
-            text = "Volver al Inicio"
-            setBackgroundColor(Color.argb(255, 200, 50, 50))
-            setTextColor(Color.WHITE)
-            setPadding(60, 30, 60, 30)
-            textSize = 16f
-
-            setOnClickListener {
-                try {
-                    performGlobalAction(GLOBAL_ACTION_HOME)
-                    removeOverlay()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error: ${e.message}")
-                }
-            }
-        }
-
-        layout.addView(icono, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.CENTER
-            topMargin = -150
-        })
-
-        layout.addView(mensaje, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.CENTER
-        })
-
-        layout.addView(btnHome, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            bottomMargin = 150
-        })
-
-        val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            windowType,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.CENTER
-        }
-
-        try {
-            wm.addView(layout, lp)
-            overlayView = layout
-            Log.d(TAG, "✅ Overlay de bloqueo mostrado")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error agregando overlay: ${e.message}")
         }
     }
 
@@ -288,120 +197,88 @@ class AppMonitorService : AccessibilityService() {
             val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
             if (fechaFin <= System.currentTimeMillis()) return
 
+            Log.d(TAG, "📺 Mostrando ProteccionActivity")
             val intent = Intent(this, ProteccionActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
             startActivity(intent)
-            Log.d(TAG, "🔒 ProteccionActivity mostrada")
         } catch (e: Exception) {
-            Log.e(TAG, "Error: ${e.message}")
+            Log.e(TAG, "Error en mostrarProteccionFullScreen: ${e.message}")
         }
     }
 
-    private fun detectarIntentDesinstalacion() {
+    private fun detectarIntentDesinstalacion(event: AccessibilityEvent) {
         try {
-            val rootNode = rootInActiveWindow ?: return
+            val text = event.text.joinToString(" ")
 
-            val keywords = listOf("Desinstalar", "Uninstall", "Remove", "Eliminar")
-            for (keyword in keywords) {
-                val nodes = rootNode.findAccessibilityNodeInfosByText(keyword)
-                if (nodes.isNotEmpty()) {
-                    Log.w(TAG, "⚠️ Intento de desinstalación detectado")
-                    val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
-                    val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
-                    if (fechaFin > System.currentTimeMillis()) {
-                        performGlobalAction(GLOBAL_ACTION_BACK)
-                        mostrarProteccionFullScreen()
-                    }
-                    nodes.forEach { it.recycle() }
-                    rootNode.recycle()
-                    return
+            if (text.contains("Desinstalar", ignoreCase = true) ||
+                text.contains("Uninstall", ignoreCase = true)) {
+
+                Log.w(TAG, "⚠️ Intento de desinstalación detectado")
+                val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
+                val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
+
+                if (fechaFin > System.currentTimeMillis()) {
+                    Log.d(TAG, "❌ Bloqueando desinstalación")
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    mostrarProteccionFullScreen()
                 }
             }
-
-            rootNode.recycle()
         } catch (e: Exception) {
-            Log.e(TAG, "Error detectando desinstalación: ${e.message}")
+            Log.e(TAG, "Error en detectarIntentDesinstalacion: ${e.message}")
         }
     }
 
-    private fun detectarLongClickEnMiApp() {
+    private fun detectarMenuDesinstalacion(event: AccessibilityEvent) {
         try {
-            val rootNode = rootInActiveWindow ?: return
-            val appNodes = rootNode.findAccessibilityNodeInfosByText(myAppName)
-
-            if (appNodes.isNotEmpty()) {
-                Log.w(TAG, "🔴 Long click en mi app - bloqueando movimiento")
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                mostrarProteccionFullScreen()
-                appNodes.forEach { it.recycle() }
-            }
-
-            rootNode.recycle()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error: ${e.message}")
-        }
-    }
-
-    private fun detectarMenuDesinstalacion() {
-        try {
-            val rootNode = rootInActiveWindow ?: return
+            val text = event.text.joinToString(" ")
 
             val keywords = listOf("Desinstalar", "Uninstall", "Remove", "Delete")
             for (keyword in keywords) {
-                val nodes = rootNode.findAccessibilityNodeInfosByText(keyword)
-                if (nodes.isNotEmpty()) {
+                if (text.contains(keyword, ignoreCase = true)) {
                     Log.w(TAG, "🔴 Menú desinstalación detectado")
                     val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
                     val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
+
                     if (fechaFin > System.currentTimeMillis()) {
                         performGlobalAction(GLOBAL_ACTION_BACK)
                         mostrarProteccionFullScreen()
                     }
-                    nodes.forEach { it.recycle() }
-                    rootNode.recycle()
                     return
                 }
             }
-
-            rootNode.recycle()
         } catch (e: Exception) {
-            Log.e(TAG, "Error: ${e.message}")
+            Log.e(TAG, "Error en detectarMenuDesinstalacion: ${e.message}")
         }
     }
 
     private fun detectarClickDesinstalar(event: AccessibilityEvent) {
-        val text = event.text.joinToString(" ")
-        if (text.contains("Desinstalar", ignoreCase = true) ||
-            text.contains("Uninstall", ignoreCase = true)) {
-
-            val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
-            val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
-            if (fechaFin > System.currentTimeMillis()) {
-                Log.w(TAG, "❌ Click en Desinstalar - BLOQUEADO")
-                performGlobalAction(GLOBAL_ACTION_BACK)
-            }
-        }
-    }
-
-    private fun removeOverlay() {
-        if (overlayView == null) return
         try {
-            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-            wm.removeViewImmediate(overlayView)
-            overlayView = null
+            val text = event.text.joinToString(" ")
+
+            if (text.contains("Desinstalar", ignoreCase = true) ||
+                text.contains("Uninstall", ignoreCase = true)) {
+
+                Log.w(TAG, "❌ Click en Desinstalar")
+                val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
+                val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
+
+                if (fechaFin > System.currentTimeMillis()) {
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    mostrarProteccionFullScreen()
+                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error removiendo overlay: ${e.message}")
+            Log.e(TAG, "Error en detectarClickDesinstalar: ${e.message}")
         }
     }
 
     override fun onInterrupt() {
-        removeOverlay()
+        Log.d(TAG, "Servicio interrumpido")
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        removeOverlay()
         handler.removeCallbacksAndMessages(null)
         Log.d(TAG, "🛑 Servicio destruido")
     }
@@ -411,51 +288,77 @@ class ProteccionActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        Log.d("ProteccionActivity", "🔒 Activity creada")
+
+        // Full screen configuration
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
-        } else {
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+        }
+
+        window.apply {
+            addFlags(
+                WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                        WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                         WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
+            decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                            View.SYSTEM_UI_FLAG_FULLSCREEN or
+                            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    )
         }
-
-        window.addFlags(
-            WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-        )
-
-        window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-                        View.SYSTEM_UI_FLAG_FULLSCREEN or
-                        View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                )
 
         setFinishOnTouchOutside(false)
-        setContentView(R.layout.activity_proteccion)
 
-        // Elementos del XML
-        val btnCerrar = findViewById<Button>(R.id.btn_cerrar)
-        val diasRestantes = findViewById<TextView>(R.id.dias_restantes)
-
-        val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
-        val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
-
-        val diasRemaining = if (fechaFin > System.currentTimeMillis()) {
-            ((fechaFin - System.currentTimeMillis()) / (24 * 60 * 60 * 1000)).toInt() + 1
-        } else {
-            0
+        // ✅ USAR XML DE LAYOUT
+        try {
+            setContentView(R.layout.activity_proteccion)
+        } catch (e: Exception) {
+            Log.e("ProteccionActivity", "Error cargando XML: ${e.message}")
+            // Si falla, crear UI programáticamente
+            createFallbackUI()
+            return
         }
 
-        diasRestantes.text = "$diasRemaining días"
+        // Referencias a los elementos del XML
+        try {
+            val btnCerrar = findViewById<Button>(R.id.btn_cerrar)
+            val diasRestantes = findViewById<TextView>(R.id.dias_restantes)
 
-        btnCerrar.setOnClickListener {
-            if (fechaFin <= System.currentTimeMillis()) {
-                finish()
+            val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
+            val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
+
+            val diasRemaining = if (fechaFin > System.currentTimeMillis()) {
+                ((fechaFin - System.currentTimeMillis()) / (24 * 60 * 60 * 1000)).toInt() + 1
+            } else {
+                0
             }
+
+            diasRestantes?.text = "$diasRemaining días"
+
+            btnCerrar?.setOnClickListener {
+                if (fechaFin <= System.currentTimeMillis()) {
+                    finish()
+                } else {
+                    Log.d("ProteccionActivity", "⏱️ Aún hay protección activa")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ProteccionActivity", "Error vinculando elementos: ${e.message}")
         }
+    }
+
+    private fun createFallbackUI() {
+        Log.w("ProteccionActivity", "⚠️ Usando UI fallback")
+        val root = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(android.graphics.Color.BLACK)
+            isClickable = true
+            isFocusable = true
+        }
+        setContentView(root)
     }
 
 
@@ -469,5 +372,16 @@ class ProteccionActivity : Activity() {
                             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     )
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Mantener la pantalla visible
+        Log.d("ProteccionActivity", "📱 En pausa pero visible")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.d("ProteccionActivity", "🛑 Activity destruida")
     }
 }
