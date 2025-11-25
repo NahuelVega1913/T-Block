@@ -8,27 +8,33 @@ import android.util.Log
 import com.example.tblock.BlockListManager
 
 // Renombrada la clase para evitar redeclaration con otra definición existente.
-class BlockNewAppsReceiverKt : BroadcastReceiver() {
+class BlockNewAppsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
         if (context == null || intent == null) return
+
         val action = intent.action ?: return
+
         if (action != Intent.ACTION_PACKAGE_ADDED) return
 
         val pkg = intent.data?.schemeSpecificPart ?: return
 
         try {
-            val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-            val enabled = prefs.getBoolean("block_new_apps", false)
+            val prefs = context.getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
+            val enabled = prefs.getBoolean("bloquear_recien", false)
+
             if (!enabled) return
 
-            // Llamada al gestor (asegúrate de que BlockListManager existe en el package com.example.t_block)
-            try {
-                BlockListManager.addPackage(context, pkg)
-            } catch (e: Exception) {
-                Log.e("BlockNewAppsReceiverKt", "Error añadiendo paquete a lista: $pkg", e)
+            Log.d("BlockNewApps", "📦 Nueva app instalada: $pkg")
+
+            val current = prefs.getStringSet("blocked_apps", emptySet())?.toMutableSet() ?: mutableSetOf()
+            if (!current.contains(pkg)) {
+                current.add(pkg)
+                prefs.edit().putStringSet("blocked_apps", current).apply()
+                Log.d("BlockNewApps", "✅ App $pkg agregada a bloqueo automático")
             }
+
         } catch (e: Exception) {
-            Log.e("BlockNewAppsReceiverKt", "onReceive error", e)
+            Log.e("BlockNewAppsReceiver", "Error: ${e.message}")
         }
     }
 }

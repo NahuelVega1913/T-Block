@@ -38,10 +38,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
+
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
@@ -56,6 +53,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector
+
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -105,7 +104,7 @@ class MainActivity : ComponentActivity() {
 
             // Preferencias y DPM (usa la clase correcta MyDeviceAdminReceiver)
             val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-            val adminComponent = ComponentName(this, MyDeviceAdminReciever::class.java)
+            val adminComponent = ComponentName(this, MyDeviceAdminReceiver::class.java)
             val dpm = getSystemService(DEVICE_POLICY_SERVICE) as? DevicePolicyManager
 
             // pedir permiso de overlays sin lanzar excepción
@@ -134,7 +133,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         Log.w("MainActivity", "No se pudo solicitar ignorar optimización de batería: ${e.message}")
                     }
-                    val componentName = ComponentName(this, MyDeviceAdminReciever::class.java)
+                    val componentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
                     val devicePolicyManager = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
 
                     if (!devicePolicyManager.isAdminActive(componentName)) {
@@ -498,7 +497,7 @@ fun Home(){
     val devicePolicyManager = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
 
     // Cambiado: usar la clase real MyDeviceAdminReceiver (coincide con la definición)
-    val adminComponent = remember { ComponentName(context, MyDeviceAdminReciever::class.java) } // { changed code }
+    val adminComponent = remember { ComponentName(context, MyDeviceAdminReceiver::class.java) } // { changed code }
 
     // SharedPreferences
     val prefsName = "tblock_prefs"

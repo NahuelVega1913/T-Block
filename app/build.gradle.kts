@@ -55,6 +55,8 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.compose.foundation.layout)
     implementation(libs.firebase.sessions)
+    implementation(libs.androidx.material3)
+    implementation(libs.compose.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

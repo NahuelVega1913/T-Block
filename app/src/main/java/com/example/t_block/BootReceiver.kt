@@ -14,10 +14,11 @@ class BootReceiver : BroadcastReceiver() {
         if (action == Intent.ACTION_BOOT_COMPLETED ||
             action == "com.htc.intent.action.QUICKBOOT_POWERON") {
 
-            Log.d("BootReceiver", "Sistema iniciado - Servicio de accesibilidad debería estar activo")
+            Log.d("BootReceiver", "📱 Sistema iniciado - Servicio de accesibilidad debería estar activo")
 
-            // El servicio de accesibilidad se inicia automáticamente si está habilitado en Ajustes
-            // Solo necesitas asegurar que el usuario lo activó manualmente
+            val prefs = context.getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
+            val adminActive = prefs.getBoolean("admin_active", false)
+            Log.d("BootReceiver", if (adminActive) "✅ Admin activo" else "❌ Admin no activo")
         }
     }
 }

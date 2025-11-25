@@ -99,7 +99,7 @@
 
         <!-- ========== DEVICE ADMIN RECEIVER ========== -->
         <receiver
-            android:name="com.example.t_block.MyDeviceAdminReciever"
+            android:name="com.example.t_block.MyDeviceAdminReceiver"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_DEVICE_ADMIN"
             android:exported="true"
@@ -116,7 +116,7 @@
 
         <!-- ========== PACKAGE INSTALLATION RECEIVER ========== -->
         <receiver
-            android:name="com.example.t_block.BlockNewAppsReceiverKt"
+            android:name="com.example.t_block.BlockNewAppsReceiver"
             android:exported="true"
             android:enabled="true">
             <intent-filter>
