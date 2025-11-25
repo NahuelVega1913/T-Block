@@ -1,46 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.example.t_block">
 
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <!-- ========== PERMISOS NECESARIOS ========== -->
+
+    <!-- Mostrar overlays/ventanas flotantes -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Consultar paquetes instalados -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- Estadísticas de uso de apps -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Obtener lista de tareas en primer plano -->
+    <uses-permission android:name="android.permission.GET_TASKS" />
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
+
+    <!-- Apagar pantalla -->
+    <uses-permission android:name="android.permission.DEVICE_POWER" />
+
+    <!-- Recibir eventos de inicio del sistema -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Acceso a configuración del dispositivo -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
+    <!-- ========== QUERIES PARA PAQUETES ========== -->
     <queries>
-        <!-- paquetes concretos que necesitas ver -->
-        <package android:name="com.example.app" />
-        <!-- o intents que vas a resolver -->
+        <!-- Permite consultar apps instaladas -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
-    <!--<activity
-        android:name=".BlockOverlayActivity"
-        android:excludeFromRecents="true"
-        android:exported="false"
-        android:launchMode="singleTask"
-        android:taskAffinity=""
-        android:theme="@style/Theme.TBlock" />-->
 
-   // <application
+    <!-- ========== APPLICATION ========== -->
+    <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.TBlock">
+        android:theme="@style/Theme.TBlock"
+        android:usesCleartextTraffic="false">
 
-        <!-- Lanzador: usar nombre FQCN de la Activity principal -->
+        <!-- ========== MAIN ACTIVITY ========== -->
         <activity
             android:name="com.example.t_block.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.TBlock">
+            android:theme="@style/Theme.TBlock"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Device admin receiver: usar clase existente (corrige ortografía) -->
+        <!-- ========== BLOCK OVERLAY ACTIVITY ========== -->
+        <activity
+            android:name="com.example.t_block.BlockOverlayActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TBlock"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:noHistory="true" />
+
+        <!-- ========== PROTECTION ACTIVITY ========== -->
+        <activity
+            android:name="com.example.t_block.ProteccionActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TBlock"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:noHistory="true" />
+
+        <!-- ========== ACCESSIBILITY SERVICE ========== -->
+        <service
+            android:name="com.example.t_block.AppMonitorService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- ========== DEVICE ADMIN RECEIVER ========== -->
         <receiver
             android:name="com.example.t_block.MyDeviceAdminReciever"
             android:label="@string/app_name"
@@ -52,33 +109,30 @@
                 android:resource="@xml/device_admin_receiver" />
             <intent-filter>
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                <action android:name="android.app.action.DEVICE_ADMIN_DISABLED" />
+                <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED" />
             </intent-filter>
         </receiver>
 
-        <!-- Activity de overlay: FQCN -->
-
-
-        <!-- Accessibility service: FQCN -->
-        <service
-            android:name="com.example.t_block.AppMonitorService"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="true"
-            >
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-        </service>
-
-        <!-- Receiver para instalaciones: apuntar a la clase que existe -->
+        <!-- ========== PACKAGE INSTALLATION RECEIVER ========== -->
         <receiver
             android:name="com.example.t_block.BlockNewAppsReceiverKt"
-            android:exported="true">
+            android:exported="true"
+            android:enabled="true">
             <intent-filter>
                 <action android:name="android.intent.action.PACKAGE_ADDED" />
                 <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ========== BOOT COMPLETED RECEIVER ========== -->
+        <receiver
+            android:name="com.example.t_block.BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 
