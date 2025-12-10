@@ -30,6 +30,7 @@ import android.view.ViewGroup
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
+
 class AppMonitorService : AccessibilityService() {
 
     private val TAG = "T-Block-Monitor"
@@ -59,6 +60,85 @@ class AppMonitorService : AccessibilityService() {
         }
     }
 
+    // ✅ RECEIVER DINÁMICO PARA NUEVAS APPS
+    private val packageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            Log.d(TAG, "🎯 PACKAGE RECEIVER LLAMADO")
+
+            if (context == null || intent == null) {
+                Log.e(TAG, "❌ Context o Intent nulo")
+                return
+            }
+
+            Log.d(TAG, "📋 Action: ${intent.action}")
+
+            if (intent.action != Intent.ACTION_PACKAGE_ADDED) {
+                return
+            }
+
+            // Filtrar actualizaciones
+            if (intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) {
+                Log.d(TAG, "⏭️ Es actualización, no instalación nueva")
+                return
+            }
+
+            val pkg = intent.data?.schemeSpecificPart
+            Log.d(TAG, "📦 Nueva app instalada: $pkg")
+
+            if (pkg == null || pkg == myPackageName) {
+                return
+            }
+
+            try {
+                val prefs = context.getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
+                val bloqueosHabilitado = prefs.getBoolean("bloquear_recien", false)
+
+                Log.d(TAG, "🔍 bloquear_recien = $bloqueosHabilitado")
+
+                if (!bloqueosHabilitado) {
+                    Log.d(TAG, "❌ Función deshabilitada")
+                    return
+                }
+
+                // Obtener lista actual
+                val blocked = prefs.getStringSet("blocked_apps", emptySet())?.toMutableSet()
+                    ?: mutableSetOf()
+
+                Log.d(TAG, "📊 Apps bloqueadas actuales: ${blocked.size}")
+
+                if (blocked.contains(pkg)) {
+                    Log.d(TAG, "⚠️ $pkg ya estaba bloqueada")
+                    return
+                }
+
+                // AGREGAR
+                blocked.add(pkg)
+                val success = prefs.edit()
+                    .putStringSet("blocked_apps", HashSet(blocked))
+                    .commit()
+
+                if (success) {
+                    Log.d(TAG, "✅✅✅ APP AGREGADA AUTOMÁTICAMENTE: $pkg")
+                    Log.d(TAG, "📊 Total bloqueadas ahora: ${blocked.size}")
+
+                    // Mostrar notificación al usuario
+                    handler.post {
+                        Toast.makeText(
+                            applicationContext,
+                            "Nueva app bloqueada: $pkg",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } else {
+                    Log.e(TAG, "❌ FALLO al guardar en SharedPreferences")
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error en packageReceiver: ${e.message}", e)
+            }
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "🚀 ACCESSIBILITY SERVICE CONECTADO")
@@ -68,14 +148,28 @@ class AppMonitorService : AccessibilityService() {
             serviceInfo = AccessibilityServiceInfo().apply {
                 eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
                         AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
-                        AccessibilityEvent.TYPE_VIEW_LONG_CLICKED or
                         AccessibilityEvent.TYPE_VIEW_CLICKED
                 feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-                flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                        AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
                 notificationTimeout = 100
             }
             servicioInicializado = true
             Log.d(TAG, "✅ Servicio listo - PROTECCIÓN ACTIVA")
+
+            // ✅ REGISTRAR RECEIVER DINÁMICAMENTE
+            try {
+                val filter = IntentFilter().apply {
+                    addAction(Intent.ACTION_PACKAGE_ADDED)
+                    addAction(Intent.ACTION_PACKAGE_REPLACED)
+                    addDataScheme("package")
+                }
+                registerReceiver(packageReceiver, filter)
+                Log.d(TAG, "✅ Package receiver registrado dinámicamente")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error registrando receiver: ${e.message}")
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "Error en onServiceConnected: ${e.message}")
         }
@@ -92,33 +186,16 @@ class AppMonitorService : AccessibilityService() {
 
             when (event.eventType) {
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                    Log.d(TAG, "📱 Ventana cambió: $packageName")
-
-                    // Detectar launcher
-                    if (packageName in KNOWN_LAUNCHERS) {
+                    if (KNOWN_LAUNCHERS.contains(packageName)) {
                         verificarProteccionEnLauncher()
                     }
-
-                    // Detectar Settings
-                    if (packageName.contains("settings", ignoreCase = true)) {
-                        detectarIntentDesinstalacion(event)
-                    }
                 }
-
-                AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
-                    Log.d(TAG, "🔴 Long click detectado en: $packageName")
-                    // ✅ NO bloquear aquí - dejar que el sistema continúe
-                    verificarProteccionEnLauncher()
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                    detectarIntentDesinstalacion(event)
                 }
-
                 AccessibilityEvent.TYPE_VIEW_CLICKED -> {
                     detectarClickDesinstalar(event)
-                }
-
-                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                    if (packageName in KNOWN_LAUNCHERS) {
-                        detectarMenuDesinstalacion(event)
-                    }
+                    detectarMenuDesinstalacion(event)
                 }
             }
 
@@ -138,7 +215,6 @@ class AppMonitorService : AccessibilityService() {
             val ahora = System.currentTimeMillis()
 
             if (fechaFin > ahora) {
-                Log.d(TAG, "🔒 Protección activa en launcher")
                 mostrarProteccionFullScreen()
             }
         } catch (e: Exception) {
@@ -153,15 +229,19 @@ class AppMonitorService : AccessibilityService() {
             val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
             val blocked = prefs.getStringSet("blocked_apps", emptySet()) ?: emptySet()
 
+            Log.d(TAG, "🔍 Verificando app: $pkg")
+            Log.d(TAG, "📋 Apps bloqueadas en lista: ${blocked.size}")
+
             if (!blocked.contains(pkg)) {
-                lastBlockedPackage = null
                 return
             }
 
-            if (pkg == lastBlockedPackage) return
-            lastBlockedPackage = pkg
+            if (pkg == lastBlockedPackage) {
+                return
+            }
 
-            Log.d(TAG, "🚫 APP BLOQUEADA: $pkg")
+            lastBlockedPackage = pkg
+            Log.d(TAG, "🚫 ¡¡¡ APP BLOQUEADA: $pkg !!!")
 
             val pm = packageManager
             val appName = try {
@@ -171,23 +251,24 @@ class AppMonitorService : AccessibilityService() {
                 pkg
             }
 
-            // ✅ Mostrar overlay de bloqueo
+            // Mostrar overlay de bloqueo
             try {
-                val intent = Intent(applicationContext, BlockOverlayActivity::class.java).apply {
-                    putExtra("blocked_package", appName)
+                val intent = Intent(this, BlockOverlayActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    putExtra("blocked_package", appName)
                 }
                 startActivity(intent)
-                Log.d(TAG, "✅ BlockOverlayActivity iniciada")
+                Log.d(TAG, "✅ BlockOverlayActivity iniciada para: $appName")
             } catch (ex: Exception) {
-                Log.e(TAG, "Error lanzando BlockOverlay: ${ex.message}")
+                Log.e(TAG, "Error iniciando BlockOverlayActivity: ${ex.message}")
             }
 
             handler.removeCallbacksAndMessages(null)
             handler.postDelayed({ lastBlockedPackage = null }, 2000L)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error en verificarBloqueApp: ${e.message}")
+            Log.e(TAG, "❌ Error en verificarBloqueApp: ${e.message}")
+            e.printStackTrace()
         }
     }
 
@@ -199,7 +280,7 @@ class AppMonitorService : AccessibilityService() {
 
             Log.d(TAG, "📺 Mostrando ProteccionActivity")
             val intent = Intent(this, ProteccionActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(intent)
         } catch (e: Exception) {
@@ -213,16 +294,8 @@ class AppMonitorService : AccessibilityService() {
 
             if (text.contains("Desinstalar", ignoreCase = true) ||
                 text.contains("Uninstall", ignoreCase = true)) {
-
-                Log.w(TAG, "⚠️ Intento de desinstalación detectado")
-                val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
-                val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
-
-                if (fechaFin > System.currentTimeMillis()) {
-                    Log.d(TAG, "❌ Bloqueando desinstalación")
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                    mostrarProteccionFullScreen()
-                }
+                Log.d(TAG, "⚠️ Detectado intento de desinstalación")
+                verificarProteccionEnLauncher()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error en detectarIntentDesinstalacion: ${e.message}")
@@ -236,15 +309,9 @@ class AppMonitorService : AccessibilityService() {
             val keywords = listOf("Desinstalar", "Uninstall", "Remove", "Delete")
             for (keyword in keywords) {
                 if (text.contains(keyword, ignoreCase = true)) {
-                    Log.w(TAG, "🔴 Menú desinstalación detectado")
-                    val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
-                    val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
-
-                    if (fechaFin > System.currentTimeMillis()) {
-                        performGlobalAction(GLOBAL_ACTION_BACK)
-                        mostrarProteccionFullScreen()
-                    }
-                    return
+                    Log.d(TAG, "⚠️ Detectado menú de desinstalación")
+                    verificarProteccionEnLauncher()
+                    break
                 }
             }
         } catch (e: Exception) {
@@ -258,15 +325,8 @@ class AppMonitorService : AccessibilityService() {
 
             if (text.contains("Desinstalar", ignoreCase = true) ||
                 text.contains("Uninstall", ignoreCase = true)) {
-
-                Log.w(TAG, "❌ Click en Desinstalar")
-                val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
-                val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
-
-                if (fechaFin > System.currentTimeMillis()) {
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                    mostrarProteccionFullScreen()
-                }
+                Log.d(TAG, "⚠️ Click en botón desinstalar")
+                verificarProteccionEnLauncher()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error en detectarClickDesinstalar: ${e.message}")
@@ -279,10 +339,21 @@ class AppMonitorService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+
+        // ✅ DESREGISTRAR RECEIVER
+        try {
+            unregisterReceiver(packageReceiver)
+            Log.d(TAG, "✅ Package receiver desregistrado")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error desregistrando receiver: ${e.message}")
+        }
+
         handler.removeCallbacksAndMessages(null)
         Log.d(TAG, "🛑 Servicio destruido")
     }
 }
+
+// Las demás clases (ProteccionActivity, etc.) van aquí igual que antes...
 class ProteccionActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -290,7 +361,6 @@ class ProteccionActivity : Activity() {
 
         Log.d("ProteccionActivity", "🔒 Activity creada")
 
-        // Full screen configuration
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -307,23 +377,22 @@ class ProteccionActivity : Activity() {
             decorView.systemUiVisibility = (
                     View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
                             View.SYSTEM_UI_FLAG_FULLSCREEN or
-                            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                     )
         }
 
         setFinishOnTouchOutside(false)
 
-        // ✅ USAR XML DE LAYOUT
         try {
             setContentView(R.layout.activity_proteccion)
         } catch (e: Exception) {
             Log.e("ProteccionActivity", "Error cargando XML: ${e.message}")
-            // Si falla, crear UI programáticamente
             createFallbackUI()
             return
         }
 
-        // Referencias a los elementos del XML
         try {
             val btnCerrar = findViewById<Button>(R.id.btn_cerrar)
             val diasRestantes = findViewById<TextView>(R.id.dias_restantes)
@@ -340,11 +409,12 @@ class ProteccionActivity : Activity() {
             diasRestantes?.text = "$diasRemaining días"
 
             btnCerrar?.setOnClickListener {
-                if (fechaFin <= System.currentTimeMillis()) {
-                    finish()
-                } else {
-                    Log.d("ProteccionActivity", "⏱️ Aún hay protección activa")
+                val home = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
+                startActivity(home)
+                finish()
             }
         } catch (e: Exception) {
             Log.e("ProteccionActivity", "Error vinculando elementos: ${e.message}")
@@ -361,8 +431,6 @@ class ProteccionActivity : Activity() {
         setContentView(root)
     }
 
-
-
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
@@ -376,7 +444,6 @@ class ProteccionActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
-        // Mantener la pantalla visible
         Log.d("ProteccionActivity", "📱 En pausa pero visible")
     }
 

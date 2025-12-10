@@ -582,42 +582,55 @@ fun Home(){
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp)
-                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
-                .padding(horizontal = 12.dp)
-                .clickable {
-                    bloquearRecienInstaladas = !bloquearRecienInstaladas
-                    // guardar cambio
-                    prefs.edit().putBoolean(keyBloquearRec, bloquearRecienInstaladas).apply()
-                },
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // interruptor a la izquierda
             Switch(
                 checked = bloquearRecienInstaladas,
-                onCheckedChange = { checked ->
-                    bloquearRecienInstaladas = checked
-                    prefs.edit().putBoolean(keyBloquearRec, bloquearRecienInstaladas).apply()
-                }
+                onCheckedChange = { nuevoValor ->
+                    bloquearRecienInstaladas = nuevoValor
+
+                    // ✅ GUARDAR EN SHAREDPREFERENCES
+                    prefs.edit().apply {
+                        putBoolean("bloquear_recien", nuevoValor)
+                        commit()
+                    }
+
+                    val mensaje = if (nuevoValor) {
+                        "✅ Nuevas apps serán bloqueadas automáticamente"
+                    } else {
+                        "❌ Nuevas apps no serán bloqueadas"
+                    }
+
+                    Toast.makeText(context,
+                        if (nuevoValor) "✅ Bloqueo habilitado" else "❌ Bloqueo deshabilitado",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    Log.d("MainActivity", "🔄 Bloquear nuevas apps: $nuevoValor")
+                },
+                modifier = Modifier.padding(end = 12.dp)
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // título y estado a la derecha
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.Center
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Bloquear aplicaciones recién instaladas",
+                    text = "📦 Bloquear Nuevas Apps",
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = if (bloquearRecienInstaladas) "ACTIVADO" else "DESACTIVADO",
+                    text = if (bloquearRecienInstaladas) {
+                        "✅ Habilitado - Las nuevas apps se bloquearán"
+                    } else {
+                        "❌ Deshabilitado"
+                    },
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    color = if (bloquearRecienInstaladas) {
+                        androidx.compose.material3.MaterialTheme.colorScheme.primary
+                    } else {
+                        androidx.compose.material3.MaterialTheme.colorScheme.outline
+                    }
                 )
             }
         }

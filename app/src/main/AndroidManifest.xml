@@ -152,9 +152,11 @@
         <receiver
             android:name="com.example.t_block.BlockNewAppsReceiver"
             android:exported="true"
-            android:enabled="true">
-            <intent-filter>
+            android:enabled="true"
+            android:permission="android.permission.QUERY_ALL_PACKAGES">
+            <intent-filter android:priority="999">
                 <action android:name="android.intent.action.PACKAGE_ADDED" />
+                <action android:name="android.intent.action.PACKAGE_REPLACED" />
                 <data android:scheme="package" />
             </intent-filter>
         </receiver>

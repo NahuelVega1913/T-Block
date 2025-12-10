@@ -8,12 +8,16 @@ object BlockListManager {
     /**
      * Añade el paquete a la lista de aplicaciones bloqueadas.
      */
+
+    private const val PREFS_NAME = "tblock_prefs"
+    private const val KEY_BLOCKED_APPS = "blocked_apps"
     fun addPackage(context: Context, packageName: String) {
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val key = "blocked_apps"
-        val current = prefs.getStringSet(key, null)?.toMutableSet() ?: mutableSetOf()
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = prefs.getStringSet(KEY_BLOCKED_APPS, emptySet())
+            ?.toMutableSet() ?: mutableSetOf()
         if (current.add(packageName)) {
-            prefs.edit().putStringSet(key, current).apply()
+            // Guardamos una copia para evitar compartir referencias con SharedPreferences
+            prefs.edit().putStringSet(KEY_BLOCKED_APPS, HashSet(current)).apply()
         }
     }
 }
