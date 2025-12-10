@@ -586,24 +586,34 @@ fun Home(){
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+
             Switch(
                 checked = bloquearRecienInstaladas,
+                enabled = !evitarDesinstalacionSwitch,
                 onCheckedChange = { nuevoValor ->
+                    val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
+                    val ahora = System.currentTimeMillis()
+                    val proteccionActiva = fechaFin > ahora
+
+                    // Si la protección está activa, no permitir desactivar
+                    if (proteccionActiva && !nuevoValor) {
+                        Toast.makeText(
+                            context,
+                            "⚠️ No se puede desactivar mientras la protección anti-desinstalación esté activa",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@Switch // ✅ Cambiar a return@Switch
+                    }
+
                     bloquearRecienInstaladas = nuevoValor
 
-                    // ✅ GUARDAR EN SHAREDPREFERENCES
                     prefs.edit().apply {
                         putBoolean("bloquear_recien", nuevoValor)
                         commit()
                     }
 
-                    val mensaje = if (nuevoValor) {
-                        "✅ Nuevas apps serán bloqueadas automáticamente"
-                    } else {
-                        "❌ Nuevas apps no serán bloqueadas"
-                    }
-
-                    Toast.makeText(context,
+                    Toast.makeText(
+                        context,
                         if (nuevoValor) "✅ Bloqueo habilitado" else "❌ Bloqueo deshabilitado",
                         Toast.LENGTH_SHORT
                     ).show()
@@ -744,16 +754,24 @@ fun Home(){
                     val dias = diasInput.toIntOrNull()
                     if (dias != null && dias > 0) {
                         val ahora = System.currentTimeMillis()
-                        val fechaFin = ahora + (dias * 24 * 60 * 60 * 1000L) // días → milisegundos
+                        val fechaFin = ahora + (dias * 24 * 60 * 60 * 1000L)
 
                         prefs.edit()
                             .putInt(keyDias, dias)
                             .putLong("fin_evitar_desinstalacion", fechaFin)
+                            .putBoolean("bloquear_recien", true) // ✅ Activar automáticamente
                             .apply()
 
                         diasConfigurados = dias
                         evitarDesinstalacionSwitch = true
+                        bloquearRecienInstaladas = true // ✅ Actualizar estado UI
                         showPreventUninstallDialog = false
+
+                        Toast.makeText(
+                            context,
+                            "✅ Protección activada por $dias días. Bloqueo de nuevas apps habilitado.",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }) {
                     Text("Confirmar")
