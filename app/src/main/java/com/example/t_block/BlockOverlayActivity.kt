@@ -21,7 +21,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.t_block.ui.theme.TBlockTheme
 import android.content.Intent
+import android.graphics.Typeface
 import android.util.Log
+import android.view.Gravity
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.wear.compose.material3.Button
 
@@ -41,68 +44,66 @@ class BlockOverlayActivity : Activity() {
             setTurnScreenOn(true)
         }
 
+        // Configuración para mostrarse por encima del sistema
         window.apply {
             addFlags(
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
                         WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                         WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
                         WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
+
             decorView.systemUiVisibility = (
                     View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
                             View.SYSTEM_UI_FLAG_FULLSCREEN or
-                            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     )
-            setBackgroundDrawableResource(android.R.color.black)
         }
 
-        // ✅ USAR XML DE LAYOUT
+        // Intentar cargar XML simple primero
         try {
-            setContentView(R.layout.activity_block_overlay)
-        } catch (e: Exception) {
-            Log.e("BlockOverlay", "Error cargando XML: ${e.message}")
-            createFallbackUI()
-            return
-        }
+            setContentView(R.layout.activity_block_overlay_simple)
 
-        // Referencias a elementos del XML
-        try {
             val appNameBlocked = findViewById<TextView>(R.id.app_name_blocked)
             val btnHome = findViewById<Button>(R.id.btn_home)
 
             appNameBlocked?.text = blockedPackage
-            Log.d("BlockOverlay", "📦 App bloqueada: $blockedPackage")
+            btnHome?.setOnClickListener { goHome() }
 
-            btnHome?.setOnClickListener {
-                Log.d("BlockOverlay", "✅ Botón HOME presionado")
-                val home = Intent(Intent.ACTION_MAIN).apply {
-                    addCategory(Intent.CATEGORY_HOME)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                }
-                try {
-                    startActivity(home)
-                    finish()
-                } catch (e: Exception) {
-                    Log.e("BlockOverlay", "Error: ${e.message}")
-                }
-            }
+            Log.d("BlockOverlay", "✅ XML simple cargado")
         } catch (e: Exception) {
-            Log.e("BlockOverlay", "Error vinculando elementos: ${e.message}")
+            Log.e("BlockOverlay", "Error con XML simple: ${e.message}")
+            // Intentar con el XML complejo
+            try {
+                setContentView(R.layout.activity_block_overlay)
+
+                val appNameBlocked = findViewById<TextView>(R.id.app_name_blocked)
+                val btnHome = findViewById<Button>(R.id.btn_home)
+
+                appNameBlocked?.text = blockedPackage
+                btnHome?.setOnClickListener { goHome() }
+
+                Log.d("BlockOverlay", "✅ XML complejo cargado")
+            } catch (e2: Exception) {
+                Log.e("BlockOverlay", "Error con ambos XMLs: ${e2.message}")
+            }
         }
     }
 
-    private fun createFallbackUI() {
-        Log.w("BlockOverlay", "⚠️ Usando UI fallback")
-        val root = android.widget.FrameLayout(this).apply {
-            setBackgroundColor(android.graphics.Color.BLACK)
-            isClickable = true
-            isFocusable = true
+    private fun goHome() {
+        Log.d("BlockOverlay", "✅ Enviando al inicio")
+        val home = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
-        setContentView(root)
+        try {
+            startActivity(home)
+            finish()
+        } catch (e: Exception) {
+            Log.e("BlockOverlay", "Error: ${e.message}")
+            finish()
+        }
     }
 
 

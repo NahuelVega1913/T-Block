@@ -160,6 +160,10 @@
                 <data android:scheme="package" />
             </intent-filter>
         </receiver>
+        <service
+            android:name="com.example.t_block.BlockOverlayService"
+            android:enabled="true"
+            android:exported="false" />
 
         <!-- ========== BOOT COMPLETED RECEIVER ========== -->
         <receiver

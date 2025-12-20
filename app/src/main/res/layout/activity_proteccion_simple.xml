@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="#000000"
+    android:padding="40dp"
+    android:clickable="true"
+    android:focusable="true">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🔒"
+        android:textSize="100sp"
+        android:layout_marginBottom="30dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="PROTECCIÓN ACTIVA"
+        android:textSize="28sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="20dp"/>
+
+    <View
+        android:layout_width="60dp"
+        android:layout_height="3dp"
+        android:background="#FF4444"
+        android:layout_marginBottom="30dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="No se puede desinstalar esta aplicación"
+        android:textSize="16sp"
+        android:textColor="#E0E0E0"
+        android:gravity="center"
+        android:layout_marginBottom="20dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Tiempo restante:"
+        android:textSize="14sp"
+        android:textColor="#B0B0B0"
+        android:layout_marginBottom="10dp"/>
+
+    <TextView
+        android:id="@+id/dias_restantes"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="0 días"
+        android:textSize="24sp"
+        android:textColor="#FF4444"
+        android:textStyle="bold"
+        android:layout_marginBottom="50dp"/>
+
+    <Button
+        android:id="@+id/btn_cerrar"
+        android:layout_width="250dp"
+        android:layout_height="55dp"
+        android:text="CERRAR"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:backgroundTint="#FF4444"
+        android:textColor="#FFFFFF"/>
+
+</LinearLayout>
