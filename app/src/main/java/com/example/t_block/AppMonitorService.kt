@@ -50,6 +50,13 @@ class AppMonitorService : AccessibilityService() {
         "com.oneplus.launcher"
     )
 
+    private val CRITICAL_SYSTEM_PACKAGES = setOf(
+        "com.android.systemui",           // UI del sistema
+        "android",                         // Proceso del sistema Android
+        "com.android.settings.intelligence", // Inteligencia de ajustes
+        "com.google.android.permissioncontroller" // Controlador de permisos
+    )
+
     private val myPackageName by lazy { applicationContext.packageName }
     private var servicioInicializado = false
 
@@ -244,9 +251,16 @@ class AppMonitorService : AccessibilityService() {
         }
     }
 
+
     private fun verificarBloqueApp(pkg: String) {
         try {
             if (pkg == myPackageName) return
+
+            // ✅ No bloquear paquetes críticos del sistema
+            if (CRITICAL_SYSTEM_PACKAGES.contains(pkg)) {
+                Log.d(TAG, "⏭️ Paquete crítico del sistema, no bloqueando: $pkg")
+                return
+            }
 
             val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
             val blocked = prefs.getStringSet("blocked_apps", emptySet()) ?: emptySet()
@@ -255,7 +269,56 @@ class AppMonitorService : AccessibilityService() {
                 return
             }
 
-            // ✅ Prevenir llamadas repetidas en un período corto
+            // ✅ Manejo especial para Settings/Ajustes
+            if (pkg.contains("settings", ignoreCase = true)) {
+                Log.d(TAG, "⚙️ Detectado intento de abrir Ajustes bloqueado")
+
+                // Prevenir llamadas repetidas
+                val currentTime = System.currentTimeMillis()
+                if (pkg == lastBlockedPackage && (currentTime - lastBlockTime) < 2000L) {
+                    Log.d(TAG, "⏭️ Ya se bloqueó recientemente: $pkg")
+                    return
+                }
+
+                lastBlockedPackage = pkg
+                lastBlockTime = currentTime
+
+                // ✅ Cerrar Settings inmediatamente y mostrar overlay
+                try {
+                    // Simular botón HOME para salir de Settings
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+
+                    // Esperar un momento y mostrar overlay
+                    handler.postDelayed({
+                        val pm = packageManager
+                        val appName = try {
+                            val ai = pm.getApplicationInfo(pkg, 0)
+                            pm.getApplicationLabel(ai).toString()
+                        } catch (e: Exception) {
+                            "Ajustes"
+                        }
+
+                        val intent = Intent(this, BlockOverlayService::class.java).apply {
+                            putExtra("blocked_package", appName)
+                            putExtra("overlay_type", "block")
+                        }
+                        startService(intent)
+                        Log.d(TAG, "✅ BlockOverlayService iniciado para Ajustes")
+                    }, 300) // 300ms de delay
+
+                } catch (ex: Exception) {
+                    Log.e(TAG, "Error bloqueando Ajustes: ${ex.message}")
+                }
+
+                handler.postDelayed({
+                    lastBlockedPackage = null
+                    lastBlockTime = 0L
+                }, 5000L)
+
+                return
+            }
+
+            // ✅ Bloqueo normal para apps que no son Settings
             val currentTime = System.currentTimeMillis()
             if (pkg == lastBlockedPackage && (currentTime - lastBlockTime) < 3000L) {
                 Log.d(TAG, "⏭️ Ya se bloqueó recientemente: $pkg")
@@ -274,7 +337,6 @@ class AppMonitorService : AccessibilityService() {
                 pkg
             }
 
-            // Usar servicio overlay
             try {
                 val intent = Intent(this, BlockOverlayService::class.java).apply {
                     putExtra("blocked_package", appName)
@@ -286,12 +348,11 @@ class AppMonitorService : AccessibilityService() {
                 Log.e(TAG, "Error iniciando BlockOverlayService: ${ex.message}")
             }
 
-            // ✅ Limpiar después de un tiempo más largo
             handler.removeCallbacksAndMessages(null)
             handler.postDelayed({
                 lastBlockedPackage = null
                 lastBlockTime = 0L
-            }, 5000L) // 5 segundos en lugar de 2
+            }, 5000L)
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error en verificarBloqueApp: ${e.message}")
