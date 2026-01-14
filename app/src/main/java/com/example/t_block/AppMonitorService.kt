@@ -23,6 +23,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.LayoutInflater
 import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.Button
@@ -39,6 +40,12 @@ class AppMonitorService : AccessibilityService() {
     private var lastBlockTime = 0L // ✅ AGREGAR ESTA LÍNEA
 
     private val handler = Handler(Looper.getMainLooper())
+
+    private var overlayView: View? = null
+    private var countdown = 5
+    private var countdownRunnable: Runnable? = null
+    private var windowManager: WindowManager? = null
+    private var isOverlayShowing = false
 
     private val KNOWN_LAUNCHERS = setOf(
         "com.google.android.apps.nexuslauncher",
@@ -148,11 +155,66 @@ class AppMonitorService : AccessibilityService() {
             }
         }
     }
+    private fun setupCountdown(button: Button?) {
+        if (button == null) return
+
+        button.isEnabled = false
+        button.alpha = 0.5f
+        countdown = 5
+
+        val originalText = button.text.toString()
+        button.text = "$originalText ($countdown)"
+
+        countdownRunnable = object : Runnable {
+            override fun run() {
+                countdown--
+
+                if (countdown > 0) {
+                    button.text = "$originalText ($countdown)"
+                    handler.postDelayed(this, 1000)
+                } else {
+                    button.isEnabled = true
+                    button.alpha = 1.0f
+                    button.text = originalText
+                    button.setOnClickListener {
+                        removeBlockOverlay()
+                    }
+                }
+            }
+        }
+
+        handler.postDelayed(countdownRunnable!!, 1000)
+    }
+
+    private fun removeBlockOverlay() {
+        countdownRunnable?.let { handler.removeCallbacks(it) }
+
+        overlayView?.let { view ->
+            try {
+                windowManager?.removeView(view)
+                overlayView = null
+                isOverlayShowing = false
+                Log.d(TAG, "🛑 Overlay removido")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removiendo overlay: ${e.message}")
+            }
+        }
+
+        // Ir al home
+        val home = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        startActivity(home)
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "🚀 ACCESSIBILITY SERVICE CONECTADO")
         Log.d(TAG, "📱 Package: $myPackageName")
+
+        // ✅ Inicializar WindowManager
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         try {
             serviceInfo = AccessibilityServiceInfo().apply {
@@ -162,13 +224,14 @@ class AppMonitorService : AccessibilityService() {
                         AccessibilityEvent.TYPE_VIEW_CLICKED
                 feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
                 flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
-                        AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                        AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                        AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS // ✅ Para overlay
                 notificationTimeout = 100
             }
             servicioInicializado = true
             Log.d(TAG, "✅ Servicio listo - PROTECCIÓN ACTIVA")
 
-            // ✅ REGISTRAR RECEIVER DINÁMICAMENTE (AGREGADO)
+            // Registrar receiver
             try {
                 val filter = IntentFilter().apply {
                     addAction(Intent.ACTION_PACKAGE_ADDED)
@@ -176,7 +239,7 @@ class AppMonitorService : AccessibilityService() {
                     addDataScheme("package")
                 }
                 registerReceiver(packageReceiver, filter)
-                Log.d(TAG, "✅ Package receiver registrado dinámicamente")
+                Log.d(TAG, "✅ Package receiver registrado")
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error registrando receiver: ${e.message}")
             }
@@ -235,7 +298,94 @@ class AppMonitorService : AccessibilityService() {
             e.printStackTrace()
         }
     }
+    private fun showBlockOverlay(appName: String, isProtection: Boolean) {
+        if (overlayView != null) {
+            Log.d(TAG, "⏭️ Overlay ya existe, no recreando")
+            return
+        }
 
+        try {
+            // ✅ TYPE_ACCESSIBILITY_OVERLAY - El más privilegiado, se muestra sobre TODO
+            val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
+            }
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                layoutType,
+                // ✅ Flags para que el overlay esté sobre TODO
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                        WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                PixelFormat.TRANSLUCENT
+            )
+
+            params.gravity = Gravity.FILL
+            params.x = 0
+            params.y = 0
+
+            val inflater = LayoutInflater.from(this)
+
+            overlayView = if (isProtection) {
+                inflater.inflate(R.layout.activity_proteccion_simple, null)
+            } else {
+                inflater.inflate(R.layout.activity_block_overlay_simple, null)
+            }
+
+            overlayView?.let { view ->
+                // ✅ Configurar fullscreen inmersivo
+                view.systemUiVisibility = (
+                        View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        )
+
+                // ✅ Capturar todos los toques
+                view.setOnTouchListener { _, event ->
+                    true // Consumir todos los eventos
+                }
+
+                if (isProtection) {
+                    val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
+                    val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
+                    val diasRemaining = if (fechaFin > System.currentTimeMillis()) {
+                        ((fechaFin - System.currentTimeMillis()) / (24 * 60 * 60 * 1000)).toInt() + 1
+                    } else {
+                        0
+                    }
+
+                    view.findViewById<TextView>(R.id.dias_restantes)?.text = "$diasRemaining días"
+                    val btnCerrar = view.findViewById<Button>(R.id.btn_cerrar)
+                    setupCountdown(btnCerrar)
+
+                } else {
+                    view.findViewById<TextView>(R.id.app_name_blocked)?.text = appName
+                    val btnHome = view.findViewById<Button>(R.id.btn_home)
+                    setupCountdown(btnHome)
+                }
+
+                windowManager?.addView(view, params)
+                isOverlayShowing = true
+                Log.d(TAG, "✅ Overlay TYPE_ACCESSIBILITY mostrado (sobre notificaciones)")
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error mostrando overlay: ${e.message}")
+            e.printStackTrace()
+        }
+    }
     private fun verificarProteccionEnLauncher() {
         try {
             val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
@@ -255,60 +405,25 @@ class AppMonitorService : AccessibilityService() {
     private fun verificarBloqueApp(pkg: String) {
         try {
             if (pkg == myPackageName) return
-
-            // ✅ No bloquear paquetes críticos del sistema
-            if (CRITICAL_SYSTEM_PACKAGES.contains(pkg)) {
-                Log.d(TAG, "⏭️ Paquete crítico del sistema, no bloqueando: $pkg")
-                return
-            }
+            if (CRITICAL_SYSTEM_PACKAGES.contains(pkg)) return
 
             val prefs = getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
             val blocked = prefs.getStringSet("blocked_apps", emptySet()) ?: emptySet()
 
-            if (!blocked.contains(pkg)) {
-                return
-            }
+            if (!blocked.contains(pkg)) return
 
-            // ✅ Manejo especial para Settings/Ajustes
             if (pkg.contains("settings", ignoreCase = true)) {
-                Log.d(TAG, "⚙️ Detectado intento de abrir Ajustes bloqueado")
-
-                // Prevenir llamadas repetidas
                 val currentTime = System.currentTimeMillis()
-                if (pkg == lastBlockedPackage && (currentTime - lastBlockTime) < 2000L) {
-                    Log.d(TAG, "⏭️ Ya se bloqueó recientemente: $pkg")
-                    return
-                }
+                if (pkg == lastBlockedPackage && (currentTime - lastBlockTime) < 2000L) return
 
                 lastBlockedPackage = pkg
                 lastBlockTime = currentTime
 
-                // ✅ Cerrar Settings inmediatamente y mostrar overlay
-                try {
-                    // Simular botón HOME para salir de Settings
-                    performGlobalAction(GLOBAL_ACTION_HOME)
+                performGlobalAction(GLOBAL_ACTION_HOME)
 
-                    // Esperar un momento y mostrar overlay
-                    handler.postDelayed({
-                        val pm = packageManager
-                        val appName = try {
-                            val ai = pm.getApplicationInfo(pkg, 0)
-                            pm.getApplicationLabel(ai).toString()
-                        } catch (e: Exception) {
-                            "Ajustes"
-                        }
-
-                        val intent = Intent(this, BlockOverlayService::class.java).apply {
-                            putExtra("blocked_package", appName)
-                            putExtra("overlay_type", "block")
-                        }
-                        startService(intent)
-                        Log.d(TAG, "✅ BlockOverlayService iniciado para Ajustes")
-                    }, 300) // 300ms de delay
-
-                } catch (ex: Exception) {
-                    Log.e(TAG, "Error bloqueando Ajustes: ${ex.message}")
-                }
+                handler.postDelayed({
+                    showBlockOverlay("Ajustes", false)
+                }, 300)
 
                 handler.postDelayed({
                     lastBlockedPackage = null
@@ -318,16 +433,11 @@ class AppMonitorService : AccessibilityService() {
                 return
             }
 
-            // ✅ Bloqueo normal para apps que no son Settings
             val currentTime = System.currentTimeMillis()
-            if (pkg == lastBlockedPackage && (currentTime - lastBlockTime) < 3000L) {
-                Log.d(TAG, "⏭️ Ya se bloqueó recientemente: $pkg")
-                return
-            }
+            if (pkg == lastBlockedPackage && (currentTime - lastBlockTime) < 3000L) return
 
             lastBlockedPackage = pkg
             lastBlockTime = currentTime
-            Log.d(TAG, "🚫 ¡¡¡ APP BLOQUEADA: $pkg !!!")
 
             val pm = packageManager
             val appName = try {
@@ -337,18 +447,8 @@ class AppMonitorService : AccessibilityService() {
                 pkg
             }
 
-            try {
-                val intent = Intent(this, BlockOverlayService::class.java).apply {
-                    putExtra("blocked_package", appName)
-                    putExtra("overlay_type", "block")
-                }
-                startService(intent)
-                Log.d(TAG, "✅ BlockOverlayService iniciado")
-            } catch (ex: Exception) {
-                Log.e(TAG, "Error iniciando BlockOverlayService: ${ex.message}")
-            }
+            showBlockOverlay(appName, false)
 
-            handler.removeCallbacksAndMessages(null)
             handler.postDelayed({
                 lastBlockedPackage = null
                 lastBlockTime = 0L
@@ -356,7 +456,6 @@ class AppMonitorService : AccessibilityService() {
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error en verificarBloqueApp: ${e.message}")
-            e.printStackTrace()
         }
     }
 
@@ -366,11 +465,7 @@ class AppMonitorService : AccessibilityService() {
             val fechaFin = prefs.getLong("fin_evitar_desinstalacion", 0L)
             if (fechaFin <= System.currentTimeMillis()) return
 
-            Log.d(TAG, "📺 Mostrando Protección Overlay")
-            val intent = Intent(this, BlockOverlayService::class.java).apply {
-                putExtra("overlay_type", "protection")
-            }
-            startService(intent)
+            showBlockOverlay("", true)
         } catch (e: Exception) {
             Log.e(TAG, "Error en mostrarProteccionFullScreen: ${e.message}")
         }
@@ -447,12 +542,15 @@ class AppMonitorService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
 
-        // ✅ DESREGISTRAR RECEIVER (AGREGADO)
+        overlayView?.let { view ->
+            windowManager?.removeView(view)
+            overlayView = null
+        }
+
         try {
             unregisterReceiver(packageReceiver)
-            Log.d(TAG, "✅ Package receiver desregistrado")
         } catch (e: Exception) {
-            Log.e(TAG, "Error desregistrando receiver: ${e.message}")
+            Log.e(TAG, "Error: ${e.message}")
         }
 
         handler.removeCallbacksAndMessages(null)
