@@ -12,6 +12,7 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.os.Bundle
+import android.app.TimePickerDialog
 import android.preference.PreferenceManager
 import android.widget.Switch
 import android.widget.Toast
@@ -76,6 +77,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.provider.Settings.Secure
 import android.util.Log
+import java.util.Calendar
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -270,6 +272,8 @@ fun AppLockScreen() {
 
     var showDialog by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
+    var scheduleApp by remember { mutableStateOf<AppItem?>(null) }
+    var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
 
     // SharedPreferences para persistir apps bloqueadas
     val prefs = context.getSharedPreferences("tblock_prefs", Context.MODE_PRIVATE)
@@ -288,6 +292,17 @@ fun AppLockScreen() {
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                currentTimeMillis = System.currentTimeMillis()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // Cargar bloqueadas desde prefs y reconstruir AppItem usando PackageManager
@@ -362,29 +377,43 @@ fun AppLockScreen() {
                                 Text(app.label, fontSize = 16.sp)
                             }
 
-                            // Switch para desbloquear (remover de la lista)
-                            Switch(
-                                checked = true,
-                                enabled = !isPreventUninstallActive, // deshabilitar si la protección está activa
-                                onCheckedChange = { checked ->
-                                    if (isPreventUninstallActive) {
-                                        // informar al usuario; no permitir quitar mientras protección activa
-                                        Toast.makeText(
-                                            context,
-                                            "No puedes quitar aplicaciones mientras la protección contra desinstalación esté activa",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        if (!checked) {
-                                            // remover de la lista y actualizar prefs
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (app.packageName == UnlockSchedule.INSTAGRAM_PACKAGE) {
+                                    val scheduleEnd = prefs.getLong(
+                                        "horario_desbloqueo_hasta_${app.packageName}",
+                                        0L
+                                    )
+                                    Button(
+                                        enabled = scheduleEnd <= currentTimeMillis,
+                                        onClick = { scheduleApp = app }
+                                    ) {
+                                        Text("Configurar horario")
+                                    }
+                                }
+
+                                Switch(
+                                    checked = true,
+                                    enabled = !isPreventUninstallActive,
+                                    onCheckedChange = { checked ->
+                                        if (isPreventUninstallActive) {
+                                            Toast.makeText(
+                                                context,
+                                                "No puedes quitar aplicaciones mientras la protección contra desinstalación esté activa",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else if (!checked) {
                                             blockedApps.removeAll { it.packageName == app.packageName }
                                             val current = prefs.getStringSet(keyBlocked, emptySet())?.toMutableSet() ?: mutableSetOf()
                                             current.remove(app.packageName)
-                                            prefs.edit().putStringSet(keyBlocked, current).apply()
+                                            prefs.edit()
+                                                .remove("horario_desbloqueo_${app.packageName}")
+                                                .remove("horario_desbloqueo_hasta_${app.packageName}")
+                                                .putStringSet(keyBlocked, current)
+                                                .apply()
                                         }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -463,6 +492,42 @@ fun AppLockScreen() {
                     }
                 }
             )
+        }
+
+        scheduleApp?.let { app ->
+            val savedMinute = prefs.getInt("horario_desbloqueo_${app.packageName}", -1)
+            val initialHour = if (savedMinute >= 0) savedMinute / 60 else Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            val initialMinute = if (savedMinute >= 0) savedMinute % 60 else Calendar.getInstance().get(Calendar.MINUTE)
+
+            LaunchedEffect(app.packageName) {
+                TimePickerDialog(
+                    context,
+                    { _, hour, minute ->
+                        val scheduleEnd = UnlockSchedule.windowEndMillis(
+                            System.currentTimeMillis(),
+                            hour,
+                            minute
+                        )
+                        prefs.edit()
+                            .putInt("horario_desbloqueo_${app.packageName}", hour * 60 + minute)
+                            .putLong("horario_desbloqueo_hasta_${app.packageName}", scheduleEnd)
+                            .apply()
+                        Toast.makeText(
+                            context,
+                            "${app.label}: desbloqueo durante 10 minutos desde %02d:%02d".format(hour, minute),
+                            Toast.LENGTH_LONG
+                        ).show()
+                        scheduleApp = null
+                    },
+                    initialHour,
+                    initialMinute,
+                    true
+                ).apply {
+                    setOnCancelListener { scheduleApp = null }
+                    setTitle("Desbloqueo temporal para ${app.label}")
+                    show()
+                }
+            }
         }
     }
 }

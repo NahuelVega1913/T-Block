@@ -30,6 +30,7 @@ import android.widget.Button
 import android.view.ViewGroup
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.util.Calendar
 
 
 
@@ -411,6 +412,11 @@ class AppMonitorService : AccessibilityService() {
             val blocked = prefs.getStringSet("blocked_apps", emptySet()) ?: emptySet()
 
             if (!blocked.contains(pkg)) return
+
+            val scheduledUnlock = prefs.getInt("horario_desbloqueo_$pkg", -1)
+            val now = Calendar.getInstance()
+            val currentMinute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+            if (UnlockSchedule.isWithinWindow(scheduledUnlock, currentMinute)) return
 
             if (pkg.contains("settings", ignoreCase = true)) {
                 val currentTime = System.currentTimeMillis()
